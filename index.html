@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Nexora Kontrol Paneli</title>
+    <style>
+        :root {
+            --bg: #1e1e2e;
+            --surface: #313244;
+            --border: #45475a;
+            --text: #cdd6f4;
+            --text-dim: #a6adc8;
+            --accent: #89b4fa;
+            --green: #a6e3a1;
+            --red: #f38ba8;
+            --yellow: #f9e2af;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            padding: 18px;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .header .logo { font-size: 26px; }
+        .header h1 { font-size: 16px; margin: 0; }
+        .header p { font-size: 11px; color: var(--text-dim); margin: 2px 0 0; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 14px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+        }
+        .card h2 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            margin: 0 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .field { margin-bottom: 14px; }
+        .field:last-child { margin-bottom: 0; }
+        .field > label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text-dim);
+        }
+
+        select, input[type="text"], textarea {
+            width: 100%;
+            padding: 9px 10px;
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            font-size: 12px;
+            font-family: inherit;
+            resize: vertical;
+        }
+        input[type="text"] { margin-bottom: 10px; }
+
+        .volume-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .volume-row label { margin: 0; }
+        .volume-value {
+            font-size: 12px;
+            color: var(--accent);
+            font-weight: 700;
+            min-width: 34px;
+            text-align: right;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--bg);
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: 2px solid var(--surface);
+        }
+
+        button.primary {
+            width: 100%;
+            background: var(--green);
+            color: #11111b;
+            font-weight: 700;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: transform 0.15s, background 0.15s;
+        }
+        button.primary:hover { background: #94e2d5; transform: translateY(-1px); }
+        button.primary:active { transform: translateY(0); }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .toggle-row span { font-size: 13px; font-weight: 600; }
+        .switch { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .slider-toggle {
+            position: absolute; inset: 0; cursor: pointer;
+            background: var(--border); border-radius: 24px;
+            transition: 0.2s;
+        }
+        .slider-toggle::before {
+            content: ""; position: absolute; height: 18px; width: 18px;
+            left: 3px; top: 3px; background: #fff; border-radius: 50%;
+            transition: 0.2s;
+        }
+        .switch input:checked + .slider-toggle { background: var(--green); }
+        .switch input:checked + .slider-toggle::before { transform: translateX(18px); }
+
+        #ticketsCard { display: none; }
+        .ticket-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .ticket-card:last-child { margin-bottom: 0; }
+        .ticket-name {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+        .ticket-actions { display: flex; gap: 6px; }
+        .ticket-btn {
+            flex: 1;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 4px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #11111b;
+            transition: opacity 0.15s;
+        }
+        .ticket-btn:hover { opacity: 0.85; }
+        .kontrol-btn { background: var(--accent); }
+        .kontrol-btn.active { background: var(--red); }
+        .ban-btn { background: var(--red); }
+        .hold-btn { background: var(--yellow); }
+        .hold-btn.active { background: var(--green); }
+
+        #activeScansCard { display: none; }
+        .scan-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 9px 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        .scan-row:last-child { margin-bottom: 0; }
+        .scan-row .code { font-family: Consolas, monospace; letter-spacing: 1px; color: var(--yellow); }
+        .cancel-btn {
+            background: var(--red);
+            color: #11111b;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .cancel-btn:hover { opacity: 0.85; }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: rgba(166, 227, 161, 0.12);
+            color: var(--green);
+            border: 1px solid rgba(166, 227, 161, 0.35);
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">🛡️</div>
+        <div>
+            <h1>Nexora Kontrol Merkezi</h1>
+            <p>Ticket &amp; tarama otomasyonu</p>
+        </div>
+    </div>
+
+    <div class="card" id="ticketsCard">
+        <h2>🎫 Aktif Ticketlar</h2>
+        <div id="ticketsList"></div>
+    </div>
+
+    <div class="card">
+        <h2>🔊 Bildirim</h2>
+        <div class="field">
+            <label>Ticket Bildirim Sesi</label>
+            <select id="soundSelect">
+                <option value="bildirim1.mp3">Standart Bildirim 1</option>
+                <option value="bildirim2.mp3">Standart Bildirim 2</option>
+                <option value="bildirim3.mp3">Standart Bildirim 3</option>
+                <option value="bildirim4.mp3" selected>Standart Bildirim 4</option>
+                <option value="bildirim5.mp3">Standart Bildirim 5</option>
+            </select>
+        </div>
+        <div class="field">
+            <div class="volume-row">
+                <label>Ses Düzeyi</label>
+                <span class="volume-value" id="volumeLabel">%5</span>
+            </div>
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.05">
+        </div>
+        <button class="primary" id="testBtn">▶️ Sesi Test Et</button>
+    </div>
+
+    <div class="card">
+        <h2>🤝 Karşılama</h2>
+        <div class="toggle-row">
+            <span>Otomatik Karşılama</span>
+            <label class="switch">
+                <input type="checkbox" id="autoReplyToggle">
+                <span class="slider-toggle"></span>
+            </label>
+        </div>
+        <div class="field" style="margin-top: 12px;">
+            <label>Karşılama Mesajı (boş bırakırsan sticker atılır)</label>
+            <textarea id="welcomeMessageInput" rows="3" placeholder="Örn: Merhaba, ticket'ınız alındı, en kısa sürede ilgilenilecektir."></textarea>
+        </div>
+        <button class="primary" id="saveWelcomeMessageBtn">💾 Mesajı Kaydet</button>
+    </div>
+
+    <div class="card" id="activeScansCard">
+        <h2>🔍 Aktif Taramalar</h2>
+        <div id="activeScansList"></div>
+    </div>
+
+    <div class="card">
+        <h2>📱 Mobil Erişim</h2>
+        <div class="field">
+            <label>Aynı Wi-Fi'daki telefondan aç</label>
+            <input type="text" id="mobileUrlField" readonly value="Bağlanılıyor...">
+        </div>
+        <button class="primary" id="copyMobileUrlBtn">📋 Linki Kopyala</button>
+    </div>
+
+    <div class="status-pill"><span class="dot"></span> Sistem Arka Planda Aktif</div>
+
+    <script>
+        require('./renderer.js');
+    </script>
+</body>
+</html>
