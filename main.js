@@ -41,7 +41,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.0.0';
+const CURRENT_VERSION = '1.1.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -170,6 +170,15 @@ const channelScans = new Map();      // kanal ID -> o kanalda süren "kontrol" t
 const channelLastLogMessage = new Map(); // kanal ID -> o kanalın en son sonuç log mesajı (ban notu için)
 const myTickets = new Set();         // içinde en az bir mesaj yazdığım ticket kanal ID'leri
 const warnedCategoryMismatch = new Set(); // kategori ID uyuşmazlığı için tekrar tekrar log basmayı önler
+const cheatingFlagged = new Set();    // "cheating" sonucu çıkan ticket kanal ID'leri (panelde kırmızı vurgu için)
+
+function flagIfCheating(channelId, result) {
+    if (String(result?.verdict).toLowerCase() === 'cheating') {
+        cheatingFlagged.add(channelId);
+        console.log(`[Tarama] Ticket kırmızı işaretlendi (cheating): ${channelId}`);
+        broadcastTicketList();
+    }
+}
 
 function getTicketChannels() {
     return client.channels.cache
@@ -178,7 +187,8 @@ function getTicketChannels() {
             id: ch.id,
             name: ch.name,
             held: heldTickets.has(ch.id),
-            scanCode: channelScans.get(ch.id) || null
+            scanCode: channelScans.get(ch.id) || null,
+            flagged: cheatingFlagged.has(ch.id)
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -207,6 +217,9 @@ async function refreshMyTickets() {
 ipcMain.on('request-ticket-list', () => broadcastTicketList());
 ipcMain.on('request-mobile-url', (event) => {
     if (mainWindow) mainWindow.webContents.send('mobile-url', getMobileUrl());
+});
+ipcMain.on('request-app-version', (event) => {
+    if (mainWindow) mainWindow.webContents.send('app-version', CURRENT_VERSION);
 });
 
 ipcMain.on('toggle-auto-reply', (event, status) => {
@@ -579,6 +592,7 @@ client.on('channelDelete', (channel) => {
         channelScans.delete(channel.id);
         channelLastLogMessage.delete(channel.id);
         myTickets.delete(channel.id);
+        cheatingFlagged.delete(channel.id);
         broadcastTicketList();
     }
 });
@@ -900,6 +914,7 @@ async function sendToLogChannel(code, userId, originalMessage) {
                     console.log(`[Log] Tarama tamamlandı, ${url} açıldı.`);
                     await sentMsg.edit(buildResultMessage(code, userId, result, url));
                     channelLastLogMessage.set(originalMessage.channel.id, sentMsg);
+                    flagIfCheating(originalMessage.channel.id, result);
                     finishScan(code);
                 } else {
                     console.log('[Log] Tarama zaman aşımına uğradı, tarayıcı açılmadı. Gerekirse linki elle aç:', url);
@@ -968,6 +983,7 @@ async function startKontrolScan(channel, targetUserId) {
             const logMsg = await logChannel.send(buildResultMessage(code, targetUserId, result, resultUrl));
             channelLastLogMessage.set(channel.id, logMsg);
         }
+        flagIfCheating(channel.id, result);
         finishScan(code);
     } else {
         console.log('[Kontrol] Tarama zaman aşımına uğradı, tarayıcı açılmadı. Gerekirse linki elle aç:', resultUrl);
