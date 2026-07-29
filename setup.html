@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Nexora Panel - İlk Kurulum</title>
+    <style>
+        :root {
+            --bg: #1e1e2e;
+            --surface: #313244;
+            --border: #45475a;
+            --text: #cdd6f4;
+            --text-dim: #a6adc8;
+            --accent: #89b4fa;
+            --green: #a6e3a1;
+            --red: #f38ba8;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            padding: 18px;
+            overflow-y: auto;
+        }
+        .header { margin-bottom: 14px; }
+        .header h1 { font-size: 16px; margin: 0; }
+        .header p { font-size: 12px; color: var(--text-dim); margin: 4px 0 0; line-height: 1.5; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 12px;
+        }
+        .field { margin-bottom: 12px; }
+        .field:last-child { margin-bottom: 0; }
+        .field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .field .hint {
+            display: block;
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+        .field input {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .required-badge { color: var(--red); font-size: 10px; }
+        .optional-badge { color: var(--text-dim); font-size: 10px; }
+
+        button.primary {
+            width: 100%;
+            background: var(--green);
+            color: #11111b;
+            font-weight: 700;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button.primary:hover { background: #94e2d5; }
+
+        #errorBox {
+            display: none;
+            background: rgba(243, 139, 168, 0.12);
+            color: var(--red);
+            border: 1px solid rgba(243, 139, 168, 0.35);
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛡️ Nexora Panel - İlk Kurulum</h1>
+        <p>Sunucu bilgileri (kanal/kategori/rol ID'leri) zaten dolu geliyor, değiştirmene gerek yok.
+        Sadece kendi Discord token'ını ve Nexora API anahtarını gir, gerisi hazır.</p>
+    </div>
+
+    <div id="errorBox"></div>
+
+    <div class="card">
+        <div class="field">
+            <label>Discord Hesap Token'ı <span class="required-badge">zorunlu</span></label>
+            <span class="hint">Bu paneli hangi Discord hesabı çalıştıracaksa onun token'ı.</span>
+            <input type="text" id="USER_TOKEN" placeholder="Discord token">
+        </div>
+        <div class="field">
+            <label>Nexora API Anahtarı <span class="required-badge">zorunlu</span></label>
+            <span class="hint">nexorascanner.ac panelinden aldığın kendi nxr_ ile başlayan anahtarın.</span>
+            <input type="text" id="NEXORA_API_KEY" placeholder="nxr_...">
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="field">
+            <label>Log Kanalı ID <span class="optional-badge">önceden dolu</span></label>
+            <span class="hint">Tarama sonuçlarının gönderileceği kanal.</span>
+            <input type="text" id="LOG_CHANNEL_ID" value="1473372352078286951">
+        </div>
+        <div class="field">
+            <label>Ticket Kategori ID <span class="optional-badge">önceden dolu</span></label>
+            <span class="hint">Destek ticketlarının bulunduğu kategori.</span>
+            <input type="text" id="CATEGORY_ID" value="1470230380572573706">
+        </div>
+        <div class="field">
+            <label>Görmezden Gelinecek Rol ID <span class="optional-badge">önceden dolu</span></label>
+            <span class="hint">Bu role sahip biri ticket'a yazarsa otomatik karşılama tetiklenmez.</span>
+            <input type="text" id="IGNORED_ROLE_ID" value="1470230357130350734">
+        </div>
+        <div class="field">
+            <label>Diğer Anticheat Botunun Rol ID'si <span class="optional-badge">önceden dolu</span></label>
+            <span class="hint">"kontrol" hedef ararken bu role sahip kullanıcıların mesajlarını atlar.</span>
+            <input type="text" id="ANTICHEAT_ROLE_ID" value="1470230341569609898">
+        </div>
+        <div class="field">
+            <label>Görmezden Gelinecek Kullanıcı ID'leri <span class="optional-badge">önceden dolu</span></label>
+            <span class="hint">Virgülle ayırarak birden fazla ID girebilirsin.</span>
+            <input type="text" id="IGNORED_IDS" value="1518636692171522209,1517982259179950281">
+        </div>
+    </div>
+
+    <button class="primary" id="saveBtn">✅ Kaydet ve Başlat</button>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        const fields = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'IGNORED_ROLE_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
+        const errorBox = document.getElementById('errorBox');
+        const saveBtn = document.getElementById('saveBtn');
+
+        saveBtn.addEventListener('click', () => {
+            const values = {};
+            fields.forEach((key) => {
+                values[key] = document.getElementById(key).value.trim();
+            });
+            errorBox.style.display = 'none';
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Kaydediliyor...';
+            ipcRenderer.send('save-setup', values);
+        });
+
+        ipcRenderer.on('setup-error', (event, message) => {
+            errorBox.textContent = message;
+            errorBox.style.display = 'block';
+            saveBtn.disabled = false;
+            saveBtn.textContent = '✅ Kaydet ve Başlat';
+        });
+    </script>
+</body>
+</html>
