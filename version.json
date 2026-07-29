@@ -1,4 +1,4 @@
 {
-  "version": "1.1.0",
-  "changelog": "Cheating tespit edilen ticket'lar panelde kirmizi vurgulaniyor, panelde surum numarasi gosteriliyor"
+  "version": "1.2.0",
+  "changelog": "- Otomatik tarama mesaji artik ozellestirilebiliyor (hedef etiketi her zaman otomatik eklenir)\n- 3 farkli gorunum temasi eklendi: Osiloskop, Nobet Masasi, Kristal Kalkan\n- Osiloskop temasina animasyonlu Matrix arka plani eklendi\n- Gorunum secimi panelin en altina tasindi"
 }
