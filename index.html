@@ -155,6 +155,16 @@
             margin-bottom: 8px;
         }
         .ticket-card:last-child { margin-bottom: 0; }
+        .ticket-card.flagged {
+            border-color: var(--red);
+            background: rgba(243, 139, 168, 0.1);
+            box-shadow: 0 0 0 1px var(--red);
+        }
+        .ticket-name .flag-badge {
+            color: var(--red);
+            font-size: 11px;
+            margin-left: 6px;
+        }
         .ticket-name {
             font-size: 12px;
             font-weight: 600;
@@ -230,7 +240,7 @@
     <div class="header">
         <div class="logo">🛡️</div>
         <div>
-            <h1>Nexora Kontrol Merkezi</h1>
+            <h1>Nexora Kontrol Merkezi <span id="versionLabel" style="font-size:10px; font-weight:400; color:var(--text-dim);"></span></h1>
             <p>Ticket &amp; tarama otomasyonu</p>
         </div>
     </div>
