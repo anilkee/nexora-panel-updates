@@ -122,12 +122,18 @@ function setHoldButtonState(btn, channelId, held) {
 
 function renderTicketCard(ticket) {
     const card = document.createElement('div');
-    card.className = 'ticket-card';
+    card.className = 'ticket-card' + (ticket.flagged ? ' flagged' : '');
     card.id = `ticket-${ticket.id}`;
 
     const nameEl = document.createElement('div');
     nameEl.className = 'ticket-name';
     nameEl.textContent = ticket.name;
+    if (ticket.flagged) {
+        const badge = document.createElement('span');
+        badge.className = 'flag-badge';
+        badge.textContent = '🚨 Hileci';
+        nameEl.appendChild(badge);
+    }
     card.appendChild(nameEl);
 
     const actions = document.createElement('div');
@@ -226,3 +232,12 @@ autoReplyToggle.addEventListener('change', (e) => {
 ipcRenderer.send('request-auto-reply-status');
 
 ipcRenderer.send('request-mobile-url');
+
+// --- SÜRÜM NUMARASI ---
+const versionLabel = document.getElementById('versionLabel');
+
+ipcRenderer.on('app-version', (event, version) => {
+    versionLabel.textContent = `v${version}`;
+});
+
+ipcRenderer.send('request-app-version');
