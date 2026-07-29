@@ -1,6 +1,10 @@
 const { ipcRenderer, clipboard } = require('electron');
 const path = require('path');
 
+function iconHtml(name) {
+    return `<svg class="icon"><use href="#icon-${name}"></use></svg>`;
+}
+
 const soundSelect = document.getElementById('soundSelect');
 const volumeSlider = document.getElementById('volumeSlider');
 const volumeLabel = document.getElementById('volumeLabel');
@@ -72,7 +76,7 @@ function addActiveScanRow(code) {
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'cancel-btn';
-    cancelBtn.textContent = '❌ İptal Et';
+    cancelBtn.innerHTML = `${iconHtml('x')}<span>İptal Et</span>`;
     cancelBtn.addEventListener('click', () => {
         ipcRenderer.send('cancel-scan', code);
         row.remove();
@@ -104,18 +108,18 @@ function updateTicketsVisibility() {
 
 function setKontrolButtonState(btn, channelId, code) {
     if (code) {
-        btn.textContent = `❌ İptal (${code})`;
+        btn.innerHTML = `${iconHtml('x')}<span>İptal (${code})</span>`;
         btn.classList.add('active');
         btn.onclick = () => ipcRenderer.send('ticket-cancel', channelId);
     } else {
-        btn.textContent = '🔍 Kontrol';
+        btn.innerHTML = `${iconHtml('radar')}<span>Kontrol</span>`;
         btn.classList.remove('active');
         btn.onclick = () => ipcRenderer.send('ticket-kontrol', channelId);
     }
 }
 
 function setHoldButtonState(btn, channelId, held) {
-    btn.textContent = held ? '▶️ Kaldır' : '⏸️ Beklet';
+    btn.innerHTML = held ? `${iconHtml('play')}<span>Kaldır</span>` : `${iconHtml('pause')}<span>Beklet</span>`;
     btn.classList.toggle('active', held);
     btn.onclick = () => ipcRenderer.send('ticket-hold', channelId);
 }
@@ -131,7 +135,7 @@ function renderTicketCard(ticket) {
     if (ticket.flagged) {
         const badge = document.createElement('span');
         badge.className = 'flag-badge';
-        badge.textContent = '🚨 Hileci';
+        badge.innerHTML = `${iconHtml('alert')}<span>Hileci</span>`;
         nameEl.appendChild(badge);
     }
     card.appendChild(nameEl);
@@ -146,7 +150,7 @@ function renderTicketCard(ticket) {
 
     const banBtn = document.createElement('button');
     banBtn.className = 'ticket-btn ban-btn';
-    banBtn.textContent = '🚫 Ban';
+    banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
     banBtn.onclick = () => ipcRenderer.send('ticket-ban', ticket.id);
     actions.appendChild(banBtn);
 
@@ -195,11 +199,17 @@ ipcRenderer.on('mobile-url', (event, url) => {
     mobileUrlField.value = url;
 });
 
+function setButtonLabel(btn, text) {
+    const label = btn.querySelector('.label');
+    if (label) label.textContent = text;
+    else btn.textContent = text;
+}
+
 copyMobileUrlBtn.addEventListener('click', () => {
     if (!mobileUrlField.value || mobileUrlField.value === 'Bağlanılıyor...') return;
     clipboard.writeText(mobileUrlField.value);
-    copyMobileUrlBtn.textContent = '✅ Kopyalandı!';
-    setTimeout(() => { copyMobileUrlBtn.textContent = '📋 Linki Kopyala'; }, 1500);
+    setButtonLabel(copyMobileUrlBtn, 'Kopyalandı!');
+    setTimeout(() => setButtonLabel(copyMobileUrlBtn, 'Linki Kopyala'), 1500);
 });
 
 // --- KARŞILAMA MESAJI ---
@@ -212,11 +222,27 @@ ipcRenderer.on('welcome-message', (event, text) => {
 
 saveWelcomeMessageBtn.addEventListener('click', () => {
     ipcRenderer.send('set-welcome-message', welcomeMessageInput.value);
-    saveWelcomeMessageBtn.textContent = '✅ Kaydedildi!';
-    setTimeout(() => { saveWelcomeMessageBtn.textContent = '💾 Mesajı Kaydet'; }, 1500);
+    setButtonLabel(saveWelcomeMessageBtn, 'Kaydedildi!');
+    setTimeout(() => setButtonLabel(saveWelcomeMessageBtn, 'Mesajı Kaydet'), 1500);
 });
 
 ipcRenderer.send('request-welcome-message');
+
+// --- TARAMA MESAJI ---
+const scanMessageInput = document.getElementById('scanMessageInput');
+const saveScanMessageBtn = document.getElementById('saveScanMessageBtn');
+
+ipcRenderer.on('scan-message', (event, text) => {
+    scanMessageInput.value = text || '';
+});
+
+saveScanMessageBtn.addEventListener('click', () => {
+    ipcRenderer.send('set-scan-message', scanMessageInput.value);
+    setButtonLabel(saveScanMessageBtn, 'Kaydedildi!');
+    setTimeout(() => setButtonLabel(saveScanMessageBtn, 'Mesajı Kaydet'), 1500);
+});
+
+ipcRenderer.send('request-scan-message');
 
 // --- OTOMATİK KARŞILAMA AÇMA/KAPAMA ---
 const autoReplyToggle = document.getElementById('autoReplyToggle');
@@ -241,3 +267,88 @@ ipcRenderer.on('app-version', (event, version) => {
 });
 
 ipcRenderer.send('request-app-version');
+
+// --- OSİLOSKOP TEMASI: MATRIX YAĞMURU ARKA PLANI ---
+function createMatrixRain(canvas) {
+    const ctx = canvas.getContext('2d');
+    const fontSize = 15;
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+    let columns = 0;
+    let drops = [];
+
+    function resize() {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+        columns = Math.max(1, Math.floor(canvas.width / fontSize));
+        drops = Array.from({ length: columns }, () => Math.random() * -40);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    let running = false;
+    let rafId = null;
+    let lastTime = 0;
+
+    function frame(time) {
+        if (!running) return;
+        rafId = requestAnimationFrame(frame);
+        if (time - lastTime < 45) return;
+        lastTime = time;
+
+        ctx.fillStyle = 'rgba(9, 11, 10, 0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = `${fontSize}px "Cascadia Mono", Consolas, monospace`;
+
+        for (let i = 0; i < columns; i++) {
+            const x = i * fontSize;
+            const y = drops[i] * fontSize;
+
+            ctx.fillStyle = '#eafff6';
+            ctx.fillText(chars[(Math.random() * chars.length) | 0], x, y);
+            ctx.fillStyle = '#49e6ba';
+            ctx.fillText(chars[(Math.random() * chars.length) | 0], x, y - fontSize);
+
+            if (y > canvas.height && Math.random() > 0.975) drops[i] = 0;
+            drops[i]++;
+        }
+    }
+
+    return {
+        start() {
+            if (running) return;
+            running = true;
+            lastTime = 0;
+            rafId = requestAnimationFrame(frame);
+        },
+        stop() {
+            running = false;
+            if (rafId) cancelAnimationFrame(rafId);
+        }
+    };
+}
+
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const matrixCanvasEl = document.getElementById('matrixCanvas');
+const matrixRain = matrixCanvasEl ? createMatrixRain(matrixCanvasEl) : null;
+
+// --- GÖRÜNÜM (TEMA SEÇİMİ) ---
+const THEME_STORAGE_KEY = 'nexora_theme';
+const themeButtons = document.querySelectorAll('.theme-btn');
+
+function applyTheme(theme) {
+    document.body.dataset.theme = theme;
+    themeButtons.forEach((b) => b.classList.toggle('active', b.dataset.theme === theme));
+    if (matrixRain) {
+        if (theme === 'a' && !prefersReducedMotion) matrixRain.start();
+        else matrixRain.stop();
+    }
+}
+
+applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || 'a');
+
+themeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+        localStorage.setItem(THEME_STORAGE_KEY, btn.dataset.theme);
+        applyTheme(btn.dataset.theme);
+    });
+});
