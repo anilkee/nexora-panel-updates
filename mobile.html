@@ -5,115 +5,283 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Nexora Mobil Panel</title>
     <style>
-        :root {
-            --bg: #1e1e2e;
-            --surface: #313244;
-            --border: #45475a;
-            --text: #cdd6f4;
-            --text-dim: #a6adc8;
-            --accent: #89b4fa;
-            --green: #a6e3a1;
-            --red: #f38ba8;
-            --yellow: #f9e2af;
-        }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body { height: 100%; }
         body {
             margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Segoe UI', sans-serif;
             padding: 16px;
             padding-bottom: 40px;
+            font-family: "Segoe UI", system-ui, sans-serif;
+            background: var(--bg-void);
+            color: var(--text-hi);
         }
-        .header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        .header .logo { font-size: 26px; }
-        .header h1 { font-size: 16px; margin: 0; }
-        .header p { font-size: 12px; color: var(--text-dim); margin: 2px 0 0; }
 
-        .empty {
-            text-align: center;
-            color: var(--text-dim);
-            font-size: 13px;
-            padding: 40px 10px;
+        body[data-theme="a"] {
+            --bg-void: #090b0a; --bg-panel: #101513; --bg-panel-raise: #161c19;
+            --border-c: #263029; --border-soft: #1a211e;
+            --accent: #49e6ba; --accent-dim: #1f6f57;
+            --text-hi: #d9f3ea; --text-lo: #7fa199;
+            --danger: #ff6259; --warn: #f0b84a; --ok: #49e6ba;
+            --radius-card: 8px;
+            --font-display: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
         }
+        body[data-theme="b"] {
+            --bg-void: #17120e; --bg-panel: #201a15; --bg-panel-raise: #281f18;
+            --border-c: #3c2f24; --border-soft: #241c16;
+            --accent: #dd9a44; --accent-dim: #7a5726;
+            --text-hi: #f2e6d6; --text-lo: #ab9884;
+            --danger: #e2483f; --warn: #e8b23c; --ok: #7fae5a;
+            --radius-card: 10px;
+            --font-display: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
+        }
+        body[data-theme="c"] {
+            --bg-void: #0e0c1a; --bg-panel: rgba(255,255,255,0.06); --bg-panel-raise: rgba(255,255,255,0.1);
+            --border-c: rgba(255,255,255,0.16); --border-soft: rgba(255,255,255,0.08);
+            --accent: #8b7bf5; --accent-dim: #4c3fa0;
+            --text-hi: #f3f1fb; --text-lo: #a9a3cf;
+            --danger: #ff6f8f; --warn: #f5c96b; --ok: #6bd9c9;
+            --radius-card: 20px;
+            --font-display: "Constantia", "Cambria", Georgia, serif;
+        }
+
+        .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; display: none; }
+        body[data-theme="a"] #fxA { display: block; }
+        body[data-theme="b"] #fxB { display: block; }
+        body[data-theme="c"] #fxC { display: block; }
+        #fxA canvas { width: 100%; height: 100%; display: block; }
+        #fxB::before {
+            content: ""; position: absolute; top: -260px; left: 50%; width: 640px; height: 640px; margin-left: -320px;
+            border-radius: 50%; background: conic-gradient(from 0deg, rgba(221,154,68,.28), transparent 30%);
+            animation: radar-spin 7s linear infinite;
+            -webkit-mask-image: radial-gradient(circle, black 0%, black 55%, transparent 56%);
+            mask-image: radial-gradient(circle, black 0%, black 55%, transparent 56%);
+        }
+        @keyframes radar-spin { to { transform: rotate(360deg); } }
+        #fxC span { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .5; animation: drift 18s ease-in-out infinite; }
+        #fxC span:nth-child(1) { width: 240px; height: 240px; background: #8b7bf5; top: 6%; left: -70px; }
+        #fxC span:nth-child(2) { width: 220px; height: 220px; background: #6bd9c9; bottom: 10%; right: -60px; animation-delay: -6s; }
+        #fxC span:nth-child(3) { width: 180px; height: 180px; background: #d968b0; bottom: 42%; left: 45%; animation-delay: -11s; opacity: .3; }
+        @keyframes drift { 0%, 100% { transform: translate(0,0) scale(1); } 50% { transform: translate(22px,-18px) scale(1.1); } }
+        @media (prefers-reduced-motion: reduce) {
+            #fxB::before, #fxC span { animation: none !important; }
+        }
+
+        .content { position: relative; z-index: 1; }
+
+        .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+        .logo-box { width: 32px; height: 32px; flex-shrink: 0; position: relative; color: var(--accent); }
+        .logo-box svg { width: 100%; height: 100%; position: absolute; inset: 0; display: none; }
+        body[data-theme="a"] .logo-box .logo-a,
+        body[data-theme="b"] .logo-box .logo-b,
+        body[data-theme="c"] .logo-box .logo-c { display: block; }
+        .header h1 { font-family: var(--font-display); font-size: 16px; margin: 0; color: var(--text-hi); font-weight: 600; }
+        body[data-theme="b"] .header h1 { text-transform: uppercase; letter-spacing: .05em; }
+        .header p { font-size: 12px; color: var(--text-lo); margin: 2px 0 0; }
+
+        .card {
+            background: var(--bg-panel); border: 1px solid var(--border-c);
+            border-radius: var(--radius-card); padding: 14px 16px; margin-bottom: 12px; position: relative;
+        }
+        body[data-theme="c"] .card { backdrop-filter: blur(20px); }
+        body[data-theme="b"] .card { padding-top: 17px; }
+        body[data-theme="b"] .card::before, body[data-theme="b"] .card::after {
+            content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--accent-dim); opacity: .85;
+        }
+        body[data-theme="b"] .card::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
+        body[data-theme="b"] .card::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
+        .card h2 {
+            font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--accent);
+            margin: 0 0 12px; font-weight: 600; display: flex; align-items: center; gap: 6px;
+        }
+        body[data-theme="a"] .card h2, body[data-theme="b"] .card h2 { font-family: var(--font-display); }
+
+        .icon { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; vertical-align: -3px; }
+
+        .theme-picker { display: flex; flex-direction: column; gap: 8px; }
+        .theme-btn {
+            display: flex; align-items: center; gap: 9px; background: var(--bg-panel-raise);
+            border: 1px solid var(--border-c); color: var(--text-hi); border-radius: calc(var(--radius-card) - 2px);
+            padding: 11px 12px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: left;
+            font-family: "Segoe UI", sans-serif; transition: border-color .15s, background .15s;
+        }
+        .theme-btn.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        .swatch { width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0; }
+        .swatch-a { background: #49e6ba; }
+        .swatch-b { background: #dd9a44; }
+        .swatch-c { background: linear-gradient(135deg, #8b7bf5, #6bd9c9); }
+
+        .empty { text-align: center; color: var(--text-lo); font-size: 13px; padding: 40px 10px; }
 
         .ticket-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin-bottom: 12px;
+            background: var(--bg-panel); border: 1px solid var(--border-c);
+            border-radius: var(--radius-card); padding: 14px 16px; margin-bottom: 12px;
         }
-        .ticket-card.flagged {
-            border-color: var(--red);
-            background: rgba(243, 139, 168, 0.1);
-            box-shadow: 0 0 0 1px var(--red);
-        }
-        .ticket-name .flag-badge {
-            color: var(--red);
-            font-size: 12px;
-            margin-left: 6px;
-        }
+        body[data-theme="c"] .ticket-card { backdrop-filter: blur(20px); }
+        .ticket-card.flagged { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
         .ticket-name {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            word-break: break-word;
+            font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text-hi);
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap; word-break: break-word;
+        }
+        body[data-theme="a"] .ticket-name { font-family: var(--font-display); font-weight: 500; }
+        .flag-badge {
+            font-size: 11px; color: var(--danger); border: 1px solid var(--danger);
+            border-radius: 999px; padding: 2px 8px 2px 7px; font-weight: 600;
+            display: inline-flex; align-items: center; gap: 4px;
         }
         .ticket-actions { display: flex; gap: 8px; }
         .ticket-btn {
-            flex: 1;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 6px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            color: #11111b;
+            flex: 1; border: 1px solid var(--border-c); background: transparent; color: var(--text-hi);
+            border-radius: calc(var(--radius-card) - 4px); padding: 12px 6px; font-size: 13px; font-weight: 700;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
         }
-        .ticket-btn:active { opacity: 0.8; }
-        .kontrol-btn { background: var(--accent); }
-        .kontrol-btn.active { background: var(--red); }
-        .ban-btn { background: var(--red); }
-        .hold-btn { background: var(--yellow); }
-        .hold-btn.active { background: var(--green); }
+        .ticket-btn:active { opacity: .8; }
+        .ticket-btn.kontrol-btn { color: var(--accent); border-color: var(--accent-dim); }
+        .ticket-btn.kontrol-btn.active { color: var(--danger); border-color: var(--danger); }
+        .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+        .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 
         .status-pill {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            background: rgba(166, 227, 161, 0.12);
-            color: var(--green);
-            border: 1px solid rgba(166, 227, 161, 0.35);
-            padding: 10px 12px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 700;
-            margin-top: 16px;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
+            border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+            padding: 10px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; margin-top: 16px;
         }
-        .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
     </style>
 </head>
-<body>
-    <div class="header">
-        <div class="logo">📱</div>
-        <div>
-            <h1>Nexora Mobil Panel</h1>
-            <p>Ticket takibi</p>
+<body data-theme="a">
+    <div class="fx-layer" id="fxA"><canvas id="matrixCanvas"></canvas></div>
+    <div class="fx-layer" id="fxB"></div>
+    <div class="fx-layer" id="fxC"><span></span><span></span><span></span></div>
+
+    <div class="content">
+        <div class="header">
+            <div class="logo-box">
+                <svg class="logo-a" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
+                    <path d="M9 21 h5 l2.5 -8 l3 15 l2.5 -10 l2 3 h6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <svg class="logo-b" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
+                    <circle cx="20" cy="20" r="8"/><circle cx="20" cy="20" r="3.2"/>
+                    <path d="M20 8v4M20 28v4M8 20h4M28 20h4"/>
+                </svg>
+                <svg class="logo-c" viewBox="0 0 40 40">
+                    <defs><linearGradient id="logoGradCM" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="#8b7bf5"/><stop offset="1" stop-color="#6bd9c9"/>
+                    </linearGradient></defs>
+                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z" fill="url(#logoGradCM)" opacity="0.9"/>
+                    <circle cx="20" cy="19" r="4" fill="#fff" opacity="0.9"/>
+                </svg>
+            </div>
+            <div>
+                <h1>Nexora Mobil Panel</h1>
+                <p>Ticket takibi</p>
+            </div>
         </div>
+
+        <div id="ticketsList"></div>
+
+        <div class="card">
+            <h2><svg class="icon"><use href="#icon-palette"></use></svg>Görünüm</h2>
+            <div class="theme-picker">
+                <button class="theme-btn" data-theme="a"><span class="swatch swatch-a"></span>Osiloskop</button>
+                <button class="theme-btn" data-theme="b"><span class="swatch swatch-b"></span>Nöbet Masası</button>
+                <button class="theme-btn" data-theme="c"><span class="swatch swatch-c"></span>Kristal Kalkan</button>
+            </div>
+        </div>
+
+        <div class="status-pill"><span class="dot"></span> Bağlı</div>
     </div>
 
-    <div id="ticketsList"></div>
-    <div class="status-pill"><span class="dot"></span> Bağlı</div>
+    <svg style="position: absolute; width: 0; height: 0" aria-hidden="true">
+        <defs>
+            <symbol id="icon-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.3 0 2-.7 2-1.8 0-.5-.2-.9-.5-1.3-.3-.4-.5-.7-.5-1.1 0-.8.7-1.4 1.5-1.4H16a4 4 0 0 0 4-4c0-5-3.6-8.4-8-8.4Z"/><circle cx="8" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.5" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="10.5" r="1" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+            <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
+            <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
+        </defs>
+    </svg>
 
     <script>
+        function iconHtml(name) { return `<svg class="icon"><use href="#icon-${name}"></use></svg>`; }
+
+        function createMatrixRain(canvas) {
+            const ctx = canvas.getContext('2d');
+            const fontSize = 15;
+            const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+            let columns = 0;
+            let drops = [];
+
+            function resize() {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+                columns = Math.max(1, Math.floor(canvas.width / fontSize));
+                drops = Array.from({ length: columns }, () => Math.random() * -40);
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            let running = false;
+            let rafId = null;
+            let lastTime = 0;
+
+            function frame(time) {
+                if (!running) return;
+                rafId = requestAnimationFrame(frame);
+                if (time - lastTime < 45) return;
+                lastTime = time;
+
+                ctx.fillStyle = 'rgba(9, 11, 10, 0.15)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.font = `${fontSize}px "Cascadia Mono", Consolas, monospace`;
+
+                for (let i = 0; i < columns; i++) {
+                    const x = i * fontSize;
+                    const y = drops[i] * fontSize;
+
+                    ctx.fillStyle = '#eafff6';
+                    ctx.fillText(chars[(Math.random() * chars.length) | 0], x, y);
+                    ctx.fillStyle = '#49e6ba';
+                    ctx.fillText(chars[(Math.random() * chars.length) | 0], x, y - fontSize);
+
+                    if (y > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                    drops[i]++;
+                }
+            }
+
+            return {
+                start() { if (running) return; running = true; lastTime = 0; rafId = requestAnimationFrame(frame); },
+                stop() { running = false; if (rafId) cancelAnimationFrame(rafId); }
+            };
+        }
+
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const matrixCanvasEl = document.getElementById('matrixCanvas');
+        const matrixRain = matrixCanvasEl ? createMatrixRain(matrixCanvasEl) : null;
+
+        const THEME_STORAGE_KEY = 'nexora_theme';
+        const themeButtons = document.querySelectorAll('.theme-btn');
+        function applyTheme(theme) {
+            document.body.dataset.theme = theme;
+            themeButtons.forEach((b) => b.classList.toggle('active', b.dataset.theme === theme));
+            if (matrixRain) {
+                if (theme === 'a' && !prefersReducedMotion) matrixRain.start();
+                else matrixRain.stop();
+            }
+        }
+        applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || 'a');
+        themeButtons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                localStorage.setItem(THEME_STORAGE_KEY, btn.dataset.theme);
+                applyTheme(btn.dataset.theme);
+            });
+        });
+
         const params = new URLSearchParams(window.location.search);
         let token = params.get('token');
         if (token) {
@@ -145,7 +313,7 @@
             if (ticket.flagged) {
                 const badge = document.createElement('span');
                 badge.className = 'flag-badge';
-                badge.textContent = '🚨 Hileci';
+                badge.innerHTML = `${iconHtml('alert')}<span>Hileci</span>`;
                 nameEl.appendChild(badge);
             }
             card.appendChild(nameEl);
@@ -156,28 +324,28 @@
             const kontrolBtn = document.createElement('button');
             kontrolBtn.className = 'ticket-btn kontrol-btn';
             if (ticket.scanCode) {
-                kontrolBtn.textContent = `❌ İptal (${ticket.scanCode})`;
+                kontrolBtn.innerHTML = `${iconHtml('x')}<span>İptal (${ticket.scanCode})</span>`;
                 kontrolBtn.classList.add('active');
                 kontrolBtn.onclick = () => postAction(ticket.id, 'cancel');
             } else {
-                kontrolBtn.textContent = '🔍 Kontrol';
+                kontrolBtn.innerHTML = `${iconHtml('radar')}<span>Kontrol</span>`;
                 kontrolBtn.onclick = () => postAction(ticket.id, 'kontrol');
             }
             actions.appendChild(kontrolBtn);
 
             const banBtn = document.createElement('button');
             banBtn.className = 'ticket-btn ban-btn';
-            banBtn.textContent = '🚫 Ban';
+            banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
             banBtn.onclick = () => postAction(ticket.id, 'ban');
             actions.appendChild(banBtn);
 
             const holdBtn = document.createElement('button');
             holdBtn.className = 'ticket-btn hold-btn';
             if (ticket.held) {
-                holdBtn.textContent = '▶️ Kaldır';
+                holdBtn.innerHTML = `${iconHtml('play')}<span>Kaldır</span>`;
                 holdBtn.classList.add('active');
             } else {
-                holdBtn.textContent = '⏸️ Beklet';
+                holdBtn.innerHTML = `${iconHtml('pause')}<span>Beklet</span>`;
             }
             holdBtn.onclick = () => postAction(ticket.id, 'hold');
             actions.appendChild(holdBtn);
