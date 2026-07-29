@@ -41,7 +41,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.1.0';
+const CURRENT_VERSION = '1.2.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -132,6 +132,9 @@ const client = new Client({ checkUpdate: false });
 let autoReplyEnabled = process.env.AUTO_REPLY_ENABLED === 'true';
 let welcomeMessage = process.env.WELCOME_MESSAGE || '';
 
+const DEFAULT_SCAN_MESSAGE = 'Programı çalıştırıp tam ekran ss atar mısınız?';
+let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
+
 // Panel ayarlarını config.env'e kalıcı olarak yazan genel yardımcı fonksiyon.
 function saveConfigValue(key, value) {
     let lines = [];
@@ -163,6 +166,12 @@ function saveAutoReplyToConfig(status) {
     autoReplyEnabled = status;
     saveConfigValue('AUTO_REPLY_ENABLED', status ? 'true' : '');
     console.log(`[Sistem] Otomatik karşılama durumu kaydedildi: ${status ? "AÇIK" : "KAPALI"}`);
+}
+
+function saveScanMessageToConfig(text) {
+    scanMessage = text || DEFAULT_SCAN_MESSAGE;
+    saveConfigValue('SCAN_MESSAGE', text);
+    console.log('[Tarama Mesajı] Mesaj kaydedildi.');
 }
 const activeTickets = new Set();
 const heldTickets = new Set();       // beklemeye alınmış ticket kanal ID'leri
@@ -236,6 +245,14 @@ ipcMain.on('set-welcome-message', (event, text) => {
 
 ipcMain.on('request-welcome-message', (event) => {
     if (mainWindow) mainWindow.webContents.send('welcome-message', welcomeMessage);
+});
+
+ipcMain.on('set-scan-message', (event, text) => {
+    saveScanMessageToConfig(text.trim());
+});
+
+ipcMain.on('request-scan-message', (event) => {
+    if (mainWindow) mainWindow.webContents.send('scan-message', scanMessage);
 });
 
 // --- AKTİF TARAMA / İPTAL SİSTEMİ ---
@@ -955,7 +972,7 @@ async function startKontrolScan(channel, targetUserId) {
     const resultUrl = `https://nexorascanner.ac/dashboard/scan/${code}`;
 
     await channel.send(downloadUrl);
-    await channel.send(`Programı çalıştırıp tam ekran ss atar mısınız? <@${targetUserId}>`);
+    await channel.send(`${scanMessage} <@${targetUserId}>`);
 
     registerScan(code);
     channelScans.set(channel.id, code);
