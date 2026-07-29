@@ -4,305 +4,350 @@
     <meta charset="UTF-8">
     <title>Nexora Kontrol Paneli</title>
     <style>
-        :root {
-            --bg: #1e1e2e;
-            --surface: #313244;
-            --border: #45475a;
-            --text: #cdd6f4;
-            --text-dim: #a6adc8;
-            --accent: #89b4fa;
-            --green: #a6e3a1;
-            --red: #f38ba8;
-            --yellow: #f9e2af;
-        }
         * { box-sizing: border-box; }
         html, body { height: 100%; }
         body {
             margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Segoe UI', sans-serif;
             padding: 18px;
             overflow-y: auto;
+            font-family: "Segoe UI", system-ui, sans-serif;
+            background: var(--bg-void);
+            color: var(--text-hi);
         }
 
-        .header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 16px;
+        body[data-theme="a"] {
+            --bg-void: #090b0a; --bg-panel: #101513; --bg-panel-raise: #161c19;
+            --border-c: #263029; --border-soft: #1a211e;
+            --accent: #49e6ba; --accent-dim: #1f6f57;
+            --text-hi: #d9f3ea; --text-lo: #7fa199;
+            --danger: #ff6259; --warn: #f0b84a; --ok: #49e6ba;
+            --radius-card: 5px;
+            --font-display: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
         }
-        .header .logo { font-size: 26px; }
-        .header h1 { font-size: 16px; margin: 0; }
-        .header p { font-size: 11px; color: var(--text-dim); margin: 2px 0 0; }
+        body[data-theme="b"] {
+            --bg-void: #17120e; --bg-panel: #201a15; --bg-panel-raise: #281f18;
+            --border-c: #3c2f24; --border-soft: #241c16;
+            --accent: #dd9a44; --accent-dim: #7a5726;
+            --text-hi: #f2e6d6; --text-lo: #ab9884;
+            --danger: #e2483f; --warn: #e8b23c; --ok: #7fae5a;
+            --radius-card: 7px;
+            --font-display: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
+        }
+        body[data-theme="c"] {
+            --bg-void: #0e0c1a; --bg-panel: rgba(255,255,255,0.055); --bg-panel-raise: rgba(255,255,255,0.09);
+            --border-c: rgba(255,255,255,0.14); --border-soft: rgba(255,255,255,0.07);
+            --accent: #8b7bf5; --accent-dim: #4c3fa0;
+            --text-hi: #f3f1fb; --text-lo: #a9a3cf;
+            --danger: #ff6f8f; --warn: #f5c96b; --ok: #6bd9c9;
+            --radius-card: 18px;
+            --font-display: "Constantia", "Cambria", Georgia, serif;
+        }
+
+        .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; display: none; }
+        body[data-theme="a"] #fxA { display: block; }
+        body[data-theme="b"] #fxB { display: block; }
+        body[data-theme="c"] #fxC { display: block; }
+
+        #fxA canvas { width: 100%; height: 100%; display: block; }
+
+        #fxB::before {
+            content: ""; position: absolute; top: -260px; left: 50%; width: 640px; height: 640px; margin-left: -320px;
+            border-radius: 50%; background: conic-gradient(from 0deg, rgba(221,154,68,.28), transparent 30%);
+            animation: radar-spin 7s linear infinite;
+            -webkit-mask-image: radial-gradient(circle, black 0%, black 55%, transparent 56%);
+            mask-image: radial-gradient(circle, black 0%, black 55%, transparent 56%);
+        }
+        @keyframes radar-spin { to { transform: rotate(360deg); } }
+
+        #fxC span { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .5; animation: drift 18s ease-in-out infinite; }
+        #fxC span:nth-child(1) { width: 280px; height: 280px; background: #8b7bf5; top: 8%; left: -70px; }
+        #fxC span:nth-child(2) { width: 240px; height: 240px; background: #6bd9c9; bottom: 6%; right: -60px; animation-delay: -6s; }
+        #fxC span:nth-child(3) { width: 200px; height: 200px; background: #d968b0; bottom: 38%; left: 45%; animation-delay: -11s; opacity: .3; }
+        @keyframes drift { 0%, 100% { transform: translate(0,0) scale(1); } 50% { transform: translate(26px,-22px) scale(1.12); } }
+
+        @media (prefers-reduced-motion: reduce) {
+            #fxB::before, #fxC span { animation: none !important; }
+        }
+
+        .content { position: relative; z-index: 1; }
+
+        .header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .logo-box { width: 34px; height: 34px; flex-shrink: 0; position: relative; color: var(--accent); }
+        .logo-box svg { width: 100%; height: 100%; position: absolute; inset: 0; display: none; }
+        body[data-theme="a"] .logo-box .logo-a,
+        body[data-theme="b"] .logo-box .logo-b,
+        body[data-theme="c"] .logo-box .logo-c { display: block; }
+
+        .header h1 { font-family: var(--font-display); font-size: 15px; margin: 0; color: var(--text-hi); font-weight: 600; }
+        body[data-theme="b"] .header h1 { text-transform: uppercase; letter-spacing: .05em; }
+        .header .ver { font-size: 10px; font-weight: 400; color: var(--text-lo); margin-left: 6px; }
+        .header p { font-size: 11px; color: var(--text-lo); margin: 2px 0 0; }
 
         .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 16px 18px;
-            margin-bottom: 14px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+            background: var(--bg-panel);
+            border: 1px solid var(--border-c);
+            border-radius: var(--radius-card);
+            padding: 15px 16px;
+            margin-bottom: 12px;
+            position: relative;
         }
+        body[data-theme="c"] .card { backdrop-filter: blur(20px); }
+        body[data-theme="b"] .card { padding-top: 18px; }
+        body[data-theme="b"] .card::before, body[data-theme="b"] .card::after {
+            content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--accent-dim); opacity: .85;
+        }
+        body[data-theme="b"] .card::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
+        body[data-theme="b"] .card::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
+
         .card h2 {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--accent);
-            margin: 0 0 12px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+            color: var(--accent); margin: 0 0 11px; font-weight: 600;
+            display: flex; align-items: center; gap: 6px;
         }
+        body[data-theme="a"] .card h2, body[data-theme="b"] .card h2 { font-family: var(--font-display); }
 
-        .field { margin-bottom: 14px; }
-        .field:last-child { margin-bottom: 0; }
-        .field > label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 6px;
-            color: var(--text-dim);
-        }
-
-        select, input[type="text"], textarea {
-            width: 100%;
-            padding: 9px 10px;
-            border-radius: 8px;
-            background: var(--bg);
-            color: var(--text);
-            border: 1px solid var(--border);
-            font-size: 12px;
-            font-family: inherit;
-            resize: vertical;
-        }
-        input[type="text"] { margin-bottom: 10px; }
-
-        .volume-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
-        .volume-row label { margin: 0; }
-        .volume-value {
-            font-size: 12px;
-            color: var(--accent);
-            font-weight: 700;
-            min-width: 34px;
-            text-align: right;
-        }
-        input[type="range"] {
-            -webkit-appearance: none;
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: var(--bg);
-            outline: none;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            border: 2px solid var(--surface);
-        }
-
-        button.primary {
-            width: 100%;
-            background: var(--green);
-            color: #11111b;
-            font-weight: 700;
-            border: none;
-            padding: 10px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: transform 0.15s, background 0.15s;
-        }
-        button.primary:hover { background: #94e2d5; transform: translateY(-1px); }
-        button.primary:active { transform: translateY(0); }
-
-        .toggle-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .toggle-row span { font-size: 13px; font-weight: 600; }
-        .switch { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
-        .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
-        .slider-toggle {
-            position: absolute; inset: 0; cursor: pointer;
-            background: var(--border); border-radius: 24px;
-            transition: 0.2s;
-        }
-        .slider-toggle::before {
-            content: ""; position: absolute; height: 18px; width: 18px;
-            left: 3px; top: 3px; background: #fff; border-radius: 50%;
-            transition: 0.2s;
-        }
-        .switch input:checked + .slider-toggle { background: var(--green); }
-        .switch input:checked + .slider-toggle::before { transform: translateX(18px); }
+        .icon { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; vertical-align: -2px; }
 
         #ticketsCard { display: none; }
         .ticket-card {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin-bottom: 8px;
+            background: var(--bg-panel-raise); border: 1px solid var(--border-soft);
+            border-radius: calc(var(--radius-card) - 1px); padding: 10px 12px; margin-bottom: 8px;
         }
         .ticket-card:last-child { margin-bottom: 0; }
-        .ticket-card.flagged {
-            border-color: var(--red);
-            background: rgba(243, 139, 168, 0.1);
-            box-shadow: 0 0 0 1px var(--red);
-        }
-        .ticket-name .flag-badge {
-            color: var(--red);
-            font-size: 11px;
-            margin-left: 6px;
-        }
+        .ticket-card.flagged { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
         .ticket-name {
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            word-break: break-word;
+            font-size: 12px; font-weight: 600; color: var(--text-hi); margin-bottom: 8px;
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap; word-break: break-word;
+        }
+        body[data-theme="a"] .ticket-name { font-family: var(--font-display); font-weight: 500; }
+        .flag-badge {
+            font-size: 10px; color: var(--danger); border: 1px solid var(--danger);
+            border-radius: 999px; padding: 1px 7px 1px 6px; font-weight: 600;
+            display: inline-flex; align-items: center; gap: 3px;
         }
         .ticket-actions { display: flex; gap: 6px; }
         .ticket-btn {
-            flex: 1;
-            border: none;
-            border-radius: 6px;
-            padding: 7px 4px;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
-            color: #11111b;
-            transition: opacity 0.15s;
+            flex: 1; border: 1px solid var(--border-c); background: transparent;
+            color: var(--text-hi); border-radius: calc(var(--radius-card) - 1px);
+            padding: 6px 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 4px;
+            transition: background .15s, opacity .15s;
         }
-        .ticket-btn:hover { opacity: 0.85; }
-        .kontrol-btn { background: var(--accent); }
-        .kontrol-btn.active { background: var(--red); }
-        .ban-btn { background: var(--red); }
-        .hold-btn { background: var(--yellow); }
-        .hold-btn.active { background: var(--green); }
+        .ticket-btn:hover { background: var(--bg-panel); }
+        .ticket-btn.kontrol-btn { color: var(--accent); border-color: var(--accent-dim); }
+        .ticket-btn.kontrol-btn.active { color: var(--danger); border-color: var(--danger); }
+        .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+        .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+
+        .field { margin-bottom: 12px; }
+        .field:last-child { margin-bottom: 0; }
+        .field > label { display: block; font-size: 11px; font-weight: 600; margin-bottom: 6px; color: var(--text-lo); }
+        .hint { font-size: 10.5px; color: var(--text-lo); margin: 6px 0 0; line-height: 1.5; }
+
+        select, input[type="text"], textarea {
+            width: 100%; padding: 8px 9px; border-radius: calc(var(--radius-card) - 1px);
+            background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c);
+            font-size: 11.5px; font-family: "Segoe UI", sans-serif; resize: vertical;
+        }
+        textarea { line-height: 1.5; }
+
+        .volume-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .volume-row label { margin: 0; }
+        .volume-value { font-size: 11px; color: var(--accent); font-weight: 700; min-width: 30px; text-align: right; }
+        input[type="range"] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 3px; background: var(--border-c); outline: none; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+            background: var(--accent); cursor: pointer; border: 2px solid var(--bg-panel);
+        }
+
+        button.primary {
+            width: 100%; background: var(--accent); color: var(--bg-void); font-weight: 700;
+            border: none; padding: 9px; border-radius: calc(var(--radius-card) - 1px); cursor: pointer;
+            font-size: 12px; font-family: "Segoe UI", sans-serif; transition: opacity .15s, transform .15s;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        button.primary:hover { opacity: .88; }
+        button.primary:active { transform: translateY(1px); }
+
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; }
+        .toggle-row span { font-size: 12px; font-weight: 600; color: var(--text-hi); }
+        .switch { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .slider-toggle { position: absolute; inset: 0; cursor: pointer; background: var(--border-c); border-radius: 24px; transition: .2s; }
+        .slider-toggle::before {
+            content: ""; position: absolute; height: 15px; width: 15px; left: 3px; top: 3px;
+            background: var(--bg-void); border-radius: 50%; transition: .2s;
+        }
+        .switch input:checked + .slider-toggle { background: var(--accent); }
+        .switch input:checked + .slider-toggle::before { transform: translateX(17px); background: #fff; }
 
         #activeScansCard { display: none; }
         .scan-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            padding: 9px 12px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            font-size: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+            background: var(--bg-panel-raise); border: 1px solid var(--border-soft);
+            padding: 9px 12px; border-radius: calc(var(--radius-card) - 1px); font-size: 11.5px; margin-bottom: 8px;
         }
         .scan-row:last-child { margin-bottom: 0; }
-        .scan-row .code { font-family: Consolas, monospace; letter-spacing: 1px; color: var(--yellow); }
+        .scan-row .code { font-family: var(--font-display); letter-spacing: 1px; color: var(--warn); display: flex; align-items: center; gap: 7px; }
         .cancel-btn {
-            background: var(--red);
-            color: #11111b;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
+            background: transparent; color: var(--danger); border: 1px solid var(--danger);
+            padding: 5px 10px; border-radius: calc(var(--radius-card) - 1px); font-size: 10.5px; font-weight: 700; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 4px;
         }
-        .cancel-btn:hover { opacity: 0.85; }
+        .cancel-btn:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+        .theme-picker { display: flex; flex-direction: column; gap: 6px; }
+        .theme-btn {
+            display: flex; align-items: center; gap: 8px; background: var(--bg-panel-raise);
+            border: 1px solid var(--border-c); color: var(--text-hi); border-radius: calc(var(--radius-card) - 1px);
+            padding: 8px 10px; font-size: 11.5px; font-weight: 600; cursor: pointer; text-align: left;
+            font-family: "Segoe UI", sans-serif; transition: border-color .15s, background .15s;
+        }
+        .theme-btn:hover { border-color: var(--accent-dim); }
+        .theme-btn.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        .swatch { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+        .swatch-a { background: #49e6ba; }
+        .swatch-b { background: #dd9a44; }
+        .swatch-c { background: linear-gradient(135deg, #8b7bf5, #6bd9c9); }
 
         .status-pill {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            background: rgba(166, 227, 161, 0.12);
-            color: var(--green);
-            border: 1px solid rgba(166, 227, 161, 0.35);
-            padding: 8px 12px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 700;
+            display: flex; align-items: center; justify-content: center; gap: 7px;
+            background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
+            border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+            padding: 9px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 700; margin-top: 4px;
         }
-        .dot {
-            width: 7px; height: 7px; border-radius: 50%;
-            background: var(--green);
-            box-shadow: 0 0 6px var(--green);
-        }
+        .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
     </style>
 </head>
-<body>
-    <div class="header">
-        <div class="logo">🛡️</div>
-        <div>
-            <h1>Nexora Kontrol Merkezi <span id="versionLabel" style="font-size:10px; font-weight:400; color:var(--text-dim);"></span></h1>
-            <p>Ticket &amp; tarama otomasyonu</p>
-        </div>
-    </div>
+<body data-theme="a">
+    <div class="fx-layer" id="fxA"><canvas id="matrixCanvas"></canvas></div>
+    <div class="fx-layer" id="fxB"></div>
+    <div class="fx-layer" id="fxC"><span></span><span></span><span></span></div>
 
-    <div class="card" id="ticketsCard">
-        <h2>🎫 Aktif Ticketlar</h2>
-        <div id="ticketsList"></div>
-    </div>
-
-    <div class="card">
-        <h2>🔊 Bildirim</h2>
-        <div class="field">
-            <label>Ticket Bildirim Sesi</label>
-            <select id="soundSelect">
-                <option value="bildirim1.mp3">Standart Bildirim 1</option>
-                <option value="bildirim2.mp3">Standart Bildirim 2</option>
-                <option value="bildirim3.mp3">Standart Bildirim 3</option>
-                <option value="bildirim4.mp3" selected>Standart Bildirim 4</option>
-                <option value="bildirim5.mp3">Standart Bildirim 5</option>
-            </select>
-        </div>
-        <div class="field">
-            <div class="volume-row">
-                <label>Ses Düzeyi</label>
-                <span class="volume-value" id="volumeLabel">%5</span>
+    <div class="content">
+        <div class="header">
+            <div class="logo-box">
+                <svg class="logo-a" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
+                    <path d="M9 21 h5 l2.5 -8 l3 15 l2.5 -10 l2 3 h6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <svg class="logo-b" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
+                    <circle cx="20" cy="20" r="8"/><circle cx="20" cy="20" r="3.2"/>
+                    <path d="M20 8v4M20 28v4M8 20h4M28 20h4"/>
+                </svg>
+                <svg class="logo-c" viewBox="0 0 40 40">
+                    <defs><linearGradient id="logoGradC" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="#8b7bf5"/><stop offset="1" stop-color="#6bd9c9"/>
+                    </linearGradient></defs>
+                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z" fill="url(#logoGradC)" opacity="0.9"/>
+                    <circle cx="20" cy="19" r="4" fill="#fff" opacity="0.9"/>
+                </svg>
             </div>
-            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.05">
+            <div>
+                <h1>Nexora Kontrol Merkezi<span class="ver" id="versionLabel"></span></h1>
+                <p>Ticket &amp; tarama otomasyonu</p>
+            </div>
         </div>
-        <button class="primary" id="testBtn">▶️ Sesi Test Et</button>
+
+        <div class="card" id="ticketsCard">
+            <h2><svg class="icon"><use href="#icon-ticket"></use></svg>Aktif Ticketlar</h2>
+            <div id="ticketsList"></div>
+        </div>
+
+        <div class="card">
+            <h2><svg class="icon"><use href="#icon-bell"></use></svg>Bildirim</h2>
+            <div class="field">
+                <label>Ticket Bildirim Sesi</label>
+                <select id="soundSelect">
+                    <option value="bildirim1.mp3">Standart Bildirim 1</option>
+                    <option value="bildirim2.mp3">Standart Bildirim 2</option>
+                    <option value="bildirim3.mp3">Standart Bildirim 3</option>
+                    <option value="bildirim4.mp3" selected>Standart Bildirim 4</option>
+                    <option value="bildirim5.mp3">Standart Bildirim 5</option>
+                </select>
+            </div>
+            <div class="field">
+                <div class="volume-row">
+                    <label>Ses Düzeyi</label>
+                    <span class="volume-value" id="volumeLabel">%5</span>
+                </div>
+                <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.05">
+            </div>
+            <button class="primary" id="testBtn"><svg class="icon"><use href="#icon-play-fill"></use></svg>Sesi Test Et</button>
+        </div>
+
+        <div class="card">
+            <h2><svg class="icon"><use href="#icon-mail"></use></svg>Karşılama</h2>
+            <div class="toggle-row">
+                <span>Otomatik Karşılama</span>
+                <label class="switch">
+                    <input type="checkbox" id="autoReplyToggle">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+                <label>Karşılama Mesajı (boş bırakırsan sticker atılır)</label>
+                <textarea id="welcomeMessageInput" rows="3" placeholder="Örn: Merhaba, ticket'ınız alındı, en kısa sürede ilgilenilecektir."></textarea>
+            </div>
+            <button class="primary" id="saveWelcomeMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
+        </div>
+
+        <div class="card">
+            <h2><svg class="icon"><use href="#icon-radar"></use></svg>Tarama Mesajı</h2>
+            <div class="field">
+                <label>"Kontrol" başlatıldığında hedefe atılacak mesaj</label>
+                <textarea id="scanMessageInput" rows="2" placeholder="Programı çalıştırıp tam ekran ss atar mısınız?"></textarea>
+                <p class="hint">Mesajın sonuna hedef kullanıcının etiketi (@) her zaman otomatik eklenir.</p>
+            </div>
+            <button class="primary" id="saveScanMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
+        </div>
+
+        <div class="card" id="activeScansCard">
+            <h2><svg class="icon"><use href="#icon-radar"></use></svg>Aktif Taramalar</h2>
+            <div id="activeScansList"></div>
+        </div>
+
+        <div class="card">
+            <h2><svg class="icon"><use href="#icon-phone"></use></svg>Mobil Erişim</h2>
+            <div class="field">
+                <label>Aynı Wi-Fi'daki telefondan aç</label>
+                <input type="text" id="mobileUrlField" readonly value="Bağlanılıyor...">
+            </div>
+            <button class="primary" id="copyMobileUrlBtn"><svg class="icon"><use href="#icon-copy"></use></svg><span class="label">Linki Kopyala</span></button>
+        </div>
+
+        <div class="card">
+            <h2><svg class="icon"><use href="#icon-palette"></use></svg>Görünüm</h2>
+            <div class="theme-picker">
+                <button class="theme-btn" data-theme="a"><span class="swatch swatch-a"></span>Osiloskop</button>
+                <button class="theme-btn" data-theme="b"><span class="swatch swatch-b"></span>Nöbet Masası</button>
+                <button class="theme-btn" data-theme="c"><span class="swatch swatch-c"></span>Kristal Kalkan</button>
+            </div>
+        </div>
+
+        <div class="status-pill"><span class="dot"></span> Sistem Arka Planda Aktif</div>
     </div>
 
-    <div class="card">
-        <h2>🤝 Karşılama</h2>
-        <div class="toggle-row">
-            <span>Otomatik Karşılama</span>
-            <label class="switch">
-                <input type="checkbox" id="autoReplyToggle">
-                <span class="slider-toggle"></span>
-            </label>
-        </div>
-        <div class="field" style="margin-top: 12px;">
-            <label>Karşılama Mesajı (boş bırakırsan sticker atılır)</label>
-            <textarea id="welcomeMessageInput" rows="3" placeholder="Örn: Merhaba, ticket'ınız alındı, en kısa sürede ilgilenilecektir."></textarea>
-        </div>
-        <button class="primary" id="saveWelcomeMessageBtn">💾 Mesajı Kaydet</button>
-    </div>
-
-    <div class="card" id="activeScansCard">
-        <h2>🔍 Aktif Taramalar</h2>
-        <div id="activeScansList"></div>
-    </div>
-
-    <div class="card">
-        <h2>📱 Mobil Erişim</h2>
-        <div class="field">
-            <label>Aynı Wi-Fi'daki telefondan aç</label>
-            <input type="text" id="mobileUrlField" readonly value="Bağlanılıyor...">
-        </div>
-        <button class="primary" id="copyMobileUrlBtn">📋 Linki Kopyala</button>
-    </div>
-
-    <div class="status-pill"><span class="dot"></span> Sistem Arka Planda Aktif</div>
+    <svg style="position: absolute; width: 0; height: 0" aria-hidden="true">
+        <defs>
+            <symbol id="icon-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.3 0 2-.7 2-1.8 0-.5-.2-.9-.5-1.3-.3-.4-.5-.7-.5-1.1 0-.8.7-1.4 1.5-1.4H16a4 4 0 0 0 4-4c0-5-3.6-8.4-8-8.4Z"/><circle cx="8" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.5" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="10.5" r="1" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-ticket" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h11l5 5-5 5H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="10" r="1" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z"/><path d="M9.5 18a2.5 2.5 0 0 0 5 0"/></symbol>
+            <symbol id="icon-mail" viewBox="0 0 24 24"><path d="M4 5h16v10H9l-4 4V5z"/><path d="M8 9h8M8 12.5h5"/></symbol>
+            <symbol id="icon-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 19h2"/></symbol>
+            <symbol id="icon-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
+            <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><rect x="9" y="9" width="12" height="12" rx="2"/></symbol>
+            <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+            <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
+            <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-play-fill" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
+        </defs>
+    </svg>
 
     <script>
         require('./renderer.js');
