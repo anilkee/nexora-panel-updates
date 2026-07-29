@@ -1,0 +1,228 @@
+const { ipcRenderer, clipboard } = require('electron');
+const path = require('path');
+
+const soundSelect = document.getElementById('soundSelect');
+const volumeSlider = document.getElementById('volumeSlider');
+const volumeLabel = document.getElementById('volumeLabel');
+const testBtn = document.getElementById('testBtn');
+
+// --- SES AYARLARINI HATIRLA (localStorage - kalıcı, panel her açıldığında yüklenir) ---
+const SOUND_STORAGE_KEY = 'nexora_sound';
+const VOLUME_STORAGE_KEY = 'nexora_volume';
+
+const savedSound = localStorage.getItem(SOUND_STORAGE_KEY);
+if (savedSound) soundSelect.value = savedSound;
+
+const savedVolume = localStorage.getItem(VOLUME_STORAGE_KEY);
+if (savedVolume !== null) {
+    volumeSlider.value = savedVolume;
+    volumeLabel.innerText = `%${Math.round(savedVolume * 100)}`;
+}
+
+function playNotificationSound() {
+    // Ses dosyasının tam yolunu nokta atışı buluyoruz
+    const filePath = path.join(__dirname, 'sounds', soundSelect.value);
+    const audio = new Audio('file://' + filePath);
+
+    audio.volume = volumeSlider.value;
+
+    // Eğer dosya yoksa ekrana hata mesajı fırlatır
+    audio.play().catch(e => {
+        alert(`Hata: '${soundSelect.value}' dosyası bulunamadı! Lütfen 'sounds' klasörüne bu isimde bir müzik dosyası attığından emin ol.`);
+        console.error(e);
+    });
+}
+
+soundSelect.addEventListener('change', () => {
+    localStorage.setItem(SOUND_STORAGE_KEY, soundSelect.value);
+});
+
+volumeSlider.addEventListener('input', () => {
+    const percent = Math.round(volumeSlider.value * 100);
+    volumeLabel.innerText = `%${percent}`;
+    localStorage.setItem(VOLUME_STORAGE_KEY, volumeSlider.value);
+});
+
+testBtn.addEventListener('click', () => {
+    playNotificationSound();
+});
+
+ipcRenderer.on('ticket-geldi', () => {
+    playNotificationSound();
+});
+
+// --- AKTİF TARAMA / İPTAL KUTUCUKLARI ---
+const activeScansCard = document.getElementById('activeScansCard');
+const activeScansList = document.getElementById('activeScansList');
+
+function updateActiveScansVisibility() {
+    activeScansCard.style.display = activeScansList.children.length > 0 ? 'block' : 'none';
+}
+
+function addActiveScanRow(code) {
+    if (document.getElementById(`scan-row-${code}`)) return;
+
+    const row = document.createElement('div');
+    row.id = `scan-row-${code}`;
+    row.className = 'scan-row';
+
+    const label = document.createElement('span');
+    label.className = 'code';
+    label.textContent = code;
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'cancel-btn';
+    cancelBtn.textContent = '❌ İptal Et';
+    cancelBtn.addEventListener('click', () => {
+        ipcRenderer.send('cancel-scan', code);
+        row.remove();
+        updateActiveScansVisibility();
+    });
+
+    row.appendChild(label);
+    row.appendChild(cancelBtn);
+    activeScansList.appendChild(row);
+    updateActiveScansVisibility();
+}
+
+function removeActiveScanRow(code) {
+    const row = document.getElementById(`scan-row-${code}`);
+    if (row) row.remove();
+    updateActiveScansVisibility();
+}
+
+ipcRenderer.on('scan-started', (event, { code }) => addActiveScanRow(code));
+ipcRenderer.on('scan-ended', (event, { code }) => removeActiveScanRow(code));
+
+// --- AKTİF TICKETLAR (Kontrol / Ban / Beklet) ---
+const ticketsCard = document.getElementById('ticketsCard');
+const ticketsList = document.getElementById('ticketsList');
+
+function updateTicketsVisibility() {
+    ticketsCard.style.display = ticketsList.children.length > 0 ? 'block' : 'none';
+}
+
+function setKontrolButtonState(btn, channelId, code) {
+    if (code) {
+        btn.textContent = `❌ İptal (${code})`;
+        btn.classList.add('active');
+        btn.onclick = () => ipcRenderer.send('ticket-cancel', channelId);
+    } else {
+        btn.textContent = '🔍 Kontrol';
+        btn.classList.remove('active');
+        btn.onclick = () => ipcRenderer.send('ticket-kontrol', channelId);
+    }
+}
+
+function setHoldButtonState(btn, channelId, held) {
+    btn.textContent = held ? '▶️ Kaldır' : '⏸️ Beklet';
+    btn.classList.toggle('active', held);
+    btn.onclick = () => ipcRenderer.send('ticket-hold', channelId);
+}
+
+function renderTicketCard(ticket) {
+    const card = document.createElement('div');
+    card.className = 'ticket-card';
+    card.id = `ticket-${ticket.id}`;
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'ticket-name';
+    nameEl.textContent = ticket.name;
+    card.appendChild(nameEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'ticket-actions';
+
+    const kontrolBtn = document.createElement('button');
+    kontrolBtn.className = 'ticket-btn kontrol-btn';
+    setKontrolButtonState(kontrolBtn, ticket.id, ticket.scanCode);
+    actions.appendChild(kontrolBtn);
+
+    const banBtn = document.createElement('button');
+    banBtn.className = 'ticket-btn ban-btn';
+    banBtn.textContent = '🚫 Ban';
+    banBtn.onclick = () => ipcRenderer.send('ticket-ban', ticket.id);
+    actions.appendChild(banBtn);
+
+    const holdBtn = document.createElement('button');
+    holdBtn.className = 'ticket-btn hold-btn';
+    setHoldButtonState(holdBtn, ticket.id, ticket.held);
+    actions.appendChild(holdBtn);
+
+    card.appendChild(actions);
+    return card;
+}
+
+function renderTicketList(tickets) {
+    ticketsList.innerHTML = '';
+    tickets.forEach((ticket) => ticketsList.appendChild(renderTicketCard(ticket)));
+    updateTicketsVisibility();
+}
+
+ipcRenderer.on('ticket-list', (event, tickets) => renderTicketList(tickets));
+
+ipcRenderer.on('ticket-scan-started', (event, { channelId, code }) => {
+    const card = document.getElementById(`ticket-${channelId}`);
+    const btn = card?.querySelector('.kontrol-btn');
+    if (btn) setKontrolButtonState(btn, channelId, code);
+});
+
+ipcRenderer.on('ticket-scan-ended', (event, { channelId }) => {
+    const card = document.getElementById(`ticket-${channelId}`);
+    const btn = card?.querySelector('.kontrol-btn');
+    if (btn) setKontrolButtonState(btn, channelId, null);
+});
+
+ipcRenderer.on('ticket-hold-changed', (event, { channelId, held }) => {
+    const card = document.getElementById(`ticket-${channelId}`);
+    const btn = card?.querySelector('.hold-btn');
+    if (btn) setHoldButtonState(btn, channelId, held);
+});
+
+ipcRenderer.send('request-ticket-list');
+
+// --- MOBİL ERİŞİM LİNKİ ---
+const mobileUrlField = document.getElementById('mobileUrlField');
+const copyMobileUrlBtn = document.getElementById('copyMobileUrlBtn');
+
+ipcRenderer.on('mobile-url', (event, url) => {
+    mobileUrlField.value = url;
+});
+
+copyMobileUrlBtn.addEventListener('click', () => {
+    if (!mobileUrlField.value || mobileUrlField.value === 'Bağlanılıyor...') return;
+    clipboard.writeText(mobileUrlField.value);
+    copyMobileUrlBtn.textContent = '✅ Kopyalandı!';
+    setTimeout(() => { copyMobileUrlBtn.textContent = '📋 Linki Kopyala'; }, 1500);
+});
+
+// --- KARŞILAMA MESAJI ---
+const welcomeMessageInput = document.getElementById('welcomeMessageInput');
+const saveWelcomeMessageBtn = document.getElementById('saveWelcomeMessageBtn');
+
+ipcRenderer.on('welcome-message', (event, text) => {
+    welcomeMessageInput.value = text || '';
+});
+
+saveWelcomeMessageBtn.addEventListener('click', () => {
+    ipcRenderer.send('set-welcome-message', welcomeMessageInput.value);
+    saveWelcomeMessageBtn.textContent = '✅ Kaydedildi!';
+    setTimeout(() => { saveWelcomeMessageBtn.textContent = '💾 Mesajı Kaydet'; }, 1500);
+});
+
+ipcRenderer.send('request-welcome-message');
+
+// --- OTOMATİK KARŞILAMA AÇMA/KAPAMA ---
+const autoReplyToggle = document.getElementById('autoReplyToggle');
+
+ipcRenderer.on('auto-reply-status', (event, status) => {
+    autoReplyToggle.checked = status;
+});
+
+autoReplyToggle.addEventListener('change', (e) => {
+    ipcRenderer.send('toggle-auto-reply', e.target.checked);
+});
+
+ipcRenderer.send('request-auto-reply-status');
+
+ipcRenderer.send('request-mobile-url');
