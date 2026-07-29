@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>Nexora Mobil Panel</title>
+    <style>
+        :root {
+            --bg: #1e1e2e;
+            --surface: #313244;
+            --border: #45475a;
+            --text: #cdd6f4;
+            --text-dim: #a6adc8;
+            --accent: #89b4fa;
+            --green: #a6e3a1;
+            --red: #f38ba8;
+            --yellow: #f9e2af;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            padding: 16px;
+            padding-bottom: 40px;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .header .logo { font-size: 26px; }
+        .header h1 { font-size: 16px; margin: 0; }
+        .header p { font-size: 12px; color: var(--text-dim); margin: 2px 0 0; }
+
+        .empty {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 13px;
+            padding: 40px 10px;
+        }
+
+        .ticket-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+        .ticket-name {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            word-break: break-word;
+        }
+        .ticket-actions { display: flex; gap: 8px; }
+        .ticket-btn {
+            flex: 1;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 6px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #11111b;
+        }
+        .ticket-btn:active { opacity: 0.8; }
+        .kontrol-btn { background: var(--accent); }
+        .kontrol-btn.active { background: var(--red); }
+        .ban-btn { background: var(--red); }
+        .hold-btn { background: var(--yellow); }
+        .hold-btn.active { background: var(--green); }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: rgba(166, 227, 161, 0.12);
+            color: var(--green);
+            border: 1px solid rgba(166, 227, 161, 0.35);
+            padding: 10px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 16px;
+        }
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">📱</div>
+        <div>
+            <h1>Nexora Mobil Panel</h1>
+            <p>Ticket takibi</p>
+        </div>
+    </div>
+
+    <div id="ticketsList"></div>
+    <div class="status-pill"><span class="dot"></span> Bağlı</div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        let token = params.get('token');
+        if (token) {
+            localStorage.setItem('nexoraToken', token);
+        } else {
+            token = localStorage.getItem('nexoraToken');
+        }
+
+        const ticketsList = document.getElementById('ticketsList');
+
+        function apiUrl(pathname) {
+            return `${pathname}${pathname.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+        }
+
+        async function postAction(channelId, action) {
+            try {
+                await fetch(apiUrl(`/api/tickets/${channelId}/${action}`), { method: 'POST' });
+            } catch (e) {}
+            loadTickets();
+        }
+
+        function renderTicketCard(ticket) {
+            const card = document.createElement('div');
+            card.className = 'ticket-card';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'ticket-name';
+            nameEl.textContent = ticket.name;
+            card.appendChild(nameEl);
+
+            const actions = document.createElement('div');
+            actions.className = 'ticket-actions';
+
+            const kontrolBtn = document.createElement('button');
+            kontrolBtn.className = 'ticket-btn kontrol-btn';
+            if (ticket.scanCode) {
+                kontrolBtn.textContent = `❌ İptal (${ticket.scanCode})`;
+                kontrolBtn.classList.add('active');
+                kontrolBtn.onclick = () => postAction(ticket.id, 'cancel');
+            } else {
+                kontrolBtn.textContent = '🔍 Kontrol';
+                kontrolBtn.onclick = () => postAction(ticket.id, 'kontrol');
+            }
+            actions.appendChild(kontrolBtn);
+
+            const banBtn = document.createElement('button');
+            banBtn.className = 'ticket-btn ban-btn';
+            banBtn.textContent = '🚫 Ban';
+            banBtn.onclick = () => postAction(ticket.id, 'ban');
+            actions.appendChild(banBtn);
+
+            const holdBtn = document.createElement('button');
+            holdBtn.className = 'ticket-btn hold-btn';
+            if (ticket.held) {
+                holdBtn.textContent = '▶️ Kaldır';
+                holdBtn.classList.add('active');
+            } else {
+                holdBtn.textContent = '⏸️ Beklet';
+            }
+            holdBtn.onclick = () => postAction(ticket.id, 'hold');
+            actions.appendChild(holdBtn);
+
+            card.appendChild(actions);
+            return card;
+        }
+
+        async function loadTickets() {
+            if (!token) {
+                ticketsList.innerHTML = '<div class="empty">Erişim kodu bulunamadı. Panelden verilen linki kullan.</div>';
+                return;
+            }
+            try {
+                const res = await fetch(apiUrl('/api/tickets'));
+                if (res.status === 401) {
+                    ticketsList.innerHTML = '<div class="empty">Erişim kodu geçersiz.</div>';
+                    return;
+                }
+                const tickets = await res.json();
+                if (tickets.length === 0) {
+                    ticketsList.innerHTML = '<div class="empty">Henüz yazdığın bir ticket yok.</div>';
+                    return;
+                }
+                ticketsList.innerHTML = '';
+                tickets.forEach((t) => ticketsList.appendChild(renderTicketCard(t)));
+            } catch (e) {
+                ticketsList.innerHTML = '<div class="empty">Sunucuya ulaşılamıyor.</div>';
+            }
+        }
+
+        loadTickets();
+        setInterval(loadTickets, 4000);
+    </script>
+</body>
+</html>
