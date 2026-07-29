@@ -37,6 +37,62 @@ const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
 
+// --- OTOMATİK GÜNCELLEME ---
+// Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
+// version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
+// dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
+const CURRENT_VERSION = '1.0.0';
+const UPDATE_REPO_OWNER = 'anilkee';
+const UPDATE_REPO_NAME = 'nexora-panel-updates';
+const UPDATE_REPO_TOKEN = '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';
+const UPDATE_FILES = ['main.js', 'index.html', 'renderer.js', 'mobile.html', 'setup.html'];
+
+async function fetchUpdateRepoFile(filePath) {
+    const res = await fetch(
+        `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/contents/${filePath}`,
+        {
+            headers: {
+                'Authorization': `Bearer ${UPDATE_REPO_TOKEN}`,
+                'Accept': 'application/vnd.github.v3.raw',
+                'User-Agent': 'NexoraPanel-Updater'
+            }
+        }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.text();
+}
+
+async function checkForUpdates() {
+    try {
+        console.log(`[Güncelleme] Kontrol ediliyor (mevcut: v${CURRENT_VERSION})...`);
+        const remote = JSON.parse(await fetchUpdateRepoFile('version.json'));
+
+        if (remote.version === CURRENT_VERSION) {
+            console.log('[Güncelleme] Güncel.');
+            return;
+        }
+
+        console.log(`[Güncelleme] Yeni sürüm bulundu: v${remote.version}. İndiriliyor...`);
+        for (const file of UPDATE_FILES) {
+            const content = await fetchUpdateRepoFile(file);
+            fs.writeFileSync(path.join(__dirname, file), content);
+            console.log(`[Güncelleme] ${file} güncellendi.`);
+        }
+
+        await dialog.showMessageBox({
+            type: 'info',
+            title: `✅ Nexora Panel v${remote.version} güncellendi`,
+            message: `Yenilikler:\n\n${remote.changelog || '-'}\n\nUygulama şimdi yeniden başlatılacak.`,
+            buttons: ['Tamam']
+        });
+
+        app.relaunch();
+        app.exit();
+    } catch (error) {
+        console.log(`[Güncelleme] Kontrol edilemedi: ${error.message}`);
+    }
+}
+
 function isConfigComplete() {
     return Boolean(
         process.env.USER_TOKEN &&
@@ -487,7 +543,9 @@ ipcMain.on('save-setup', (event, values) => {
     app.exit();
 });
 
-app.on('ready', () => {
+app.on('ready', async () => {
+    await checkForUpdates(); // güncelleme varsa burada indirip yeniden başlatır, devam etmez
+
     if (isConfigComplete()) {
         startApp();
     } else {
