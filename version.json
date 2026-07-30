@@ -1,4 +1,4 @@
 {
-  "version": "1.2.0",
-  "changelog": "- Otomatik tarama mesaji artik ozellestirilebiliyor (hedef etiketi her zaman otomatik eklenir)\n- 3 farkli gorunum temasi eklendi: Osiloskop, Nobet Masasi, Kristal Kalkan\n- Osiloskop temasina animasyonlu Matrix arka plani eklendi\n- Gorunum secimi panelin en altina tasindi"
+  "version": "1.3.0",
+  "changelog": "- Ticket kartina \"Sonuc\" butonu eklendi: tarama tamamlaninca log kanalina atilanla ayni linki tarayicida acar, sonuca gore renklenir (clean=yesil, supheli=turuncu, cheating=kirmizi)\n- PC panelinde ana ekran sadelesti: sadece ticket listesi ve durum gosteriliyor\n- Gorunum, bildirim, karsilama, tarama mesaji, mobil erisim artik yeni bir Ayarlar ekraninda (disli butonu)\n- Ayarlar ekranina Discord token / Nexora API anahtari / kanal-rol ID lerini degistirebilecek Hesap & Sunucu karti eklendi\n- config.env kaydetme mantigi duzeltildi: hesap ayarlarini kaydederken karsilama/tarama mesaji gibi diger ayarlar artik silinmiyor"
 }
