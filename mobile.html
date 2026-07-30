@@ -128,7 +128,7 @@
             border-radius: 999px; padding: 2px 8px 2px 7px; font-weight: 600;
             display: inline-flex; align-items: center; gap: 4px;
         }
-        .ticket-actions { display: flex; gap: 8px; }
+        .ticket-actions { display: flex; flex-wrap: wrap; gap: 8px; }
         .ticket-btn {
             flex: 1; border: 1px solid var(--border-c); background: transparent; color: var(--text-hi);
             border-radius: calc(var(--radius-card) - 4px); padding: 12px 6px; font-size: 13px; font-weight: 700;
@@ -140,6 +140,10 @@
         .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
         .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-neutral { color: var(--accent); border-color: var(--accent-dim); }
 
         .status-pill {
             display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -201,6 +205,7 @@
             <symbol id="icon-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
             <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
+            <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/></symbol>
             <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
@@ -349,6 +354,16 @@
             }
             holdBtn.onclick = () => postAction(ticket.id, 'hold');
             actions.appendChild(holdBtn);
+
+            if (ticket.resultUrl) {
+                const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
+                const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
+                const sonucBtn = document.createElement('button');
+                sonucBtn.className = `ticket-btn sonuc-btn sonuc-${verdictClass}`;
+                sonucBtn.innerHTML = `${iconHtml('external')}<span>Sonuç</span>`;
+                sonucBtn.onclick = () => window.open(ticket.resultUrl, '_blank');
+                actions.appendChild(sonucBtn);
+            }
 
             card.appendChild(actions);
             return card;
