@@ -138,6 +138,13 @@
         .ticket-btn.kontrol-btn { color: var(--accent); border-color: var(--accent-dim); }
         .ticket-btn.kontrol-btn.active { color: var(--danger); border-color: var(--danger); }
         .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .ticket-btn.ban-btn.active { box-shadow: 0 0 0 1px var(--danger); }
+        .ban-reason-row { display: flex; gap: 8px; margin-top: 10px; }
+        .ban-reason-row .ban-reason-input {
+            flex: 1; padding: 10px 10px; border-radius: calc(var(--radius-card) - 2px);
+            background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c); font-size: 13px;
+        }
+        .ban-reason-row .ticket-btn { flex: 0 0 auto; padding-left: 10px; padding-right: 10px; }
         .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
@@ -209,6 +216,7 @@
             <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
         </defs>
     </svg>
 
@@ -308,6 +316,71 @@
             loadTickets();
         }
 
+        async function postBanConfirm(channelId, reason) {
+            try {
+                await fetch(apiUrl(`/api/tickets/${channelId}/ban-confirm`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason })
+                });
+            } catch (e) {}
+            banReasonOpenFor = null;
+            loadTickets();
+        }
+
+        let banReasonOpenFor = null; // sebep girilirken listenin yenilenip alanı silmesini önler
+
+        function toggleBanReasonRow(card, channelId) {
+            const existing = card.querySelector('.ban-reason-row');
+            if (existing) {
+                existing.remove();
+                banReasonOpenFor = null;
+                return;
+            }
+
+            banReasonOpenFor = channelId;
+
+            const row = document.createElement('div');
+            row.className = 'ban-reason-row';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = 'Ban sebebi (örn: 3.p-dilber)';
+            input.className = 'ban-reason-input';
+
+            const sendBtn = document.createElement('button');
+            sendBtn.className = 'ticket-btn ban-btn';
+            sendBtn.innerHTML = `${iconHtml('check')}<span>Gönder</span>`;
+            const submit = () => {
+                if (!input.value.trim()) {
+                    input.focus();
+                    return;
+                }
+                postBanConfirm(channelId, input.value.trim());
+                row.remove();
+            };
+            sendBtn.onclick = submit;
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'ticket-btn';
+            cancelBtn.innerHTML = iconHtml('x');
+            cancelBtn.setAttribute('aria-label', 'İptal');
+            cancelBtn.onclick = () => {
+                row.remove();
+                banReasonOpenFor = null;
+            };
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') submit();
+            });
+
+            row.appendChild(input);
+            row.appendChild(sendBtn);
+            row.appendChild(cancelBtn);
+            card.appendChild(row);
+            input.focus();
+        }
+
         function renderTicketCard(ticket) {
             const card = document.createElement('div');
             card.className = 'ticket-card' + (ticket.flagged ? ' flagged' : '');
@@ -339,9 +412,15 @@
             actions.appendChild(kontrolBtn);
 
             const banBtn = document.createElement('button');
-            banBtn.className = 'ticket-btn ban-btn';
+            banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
             banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
-            banBtn.onclick = () => postAction(ticket.id, 'ban');
+            banBtn.onclick = () => {
+                if (ticket.banStage === 'second') {
+                    toggleBanReasonRow(card, ticket.id);
+                } else {
+                    postAction(ticket.id, 'ban');
+                }
+            };
             actions.appendChild(banBtn);
 
             const holdBtn = document.createElement('button');
@@ -370,6 +449,7 @@
         }
 
         async function loadTickets() {
+            if (banReasonOpenFor) return; // sebep girilirken listeyi yenileyip alanı silme
             if (!token) {
                 ticketsList.innerHTML = '<div class="empty">Erişim kodu bulunamadı. Panelden verilen linki kullan.</div>';
                 return;
