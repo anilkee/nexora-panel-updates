@@ -1,4 +1,4 @@
-const { ipcRenderer, clipboard } = require('electron');
+const { ipcRenderer, clipboard, shell } = require('electron');
 const path = require('path');
 
 function iconHtml(name) {
@@ -101,9 +101,12 @@ ipcRenderer.on('scan-ended', (event, { code }) => removeActiveScanRow(code));
 // --- AKTİF TICKETLAR (Kontrol / Ban / Beklet) ---
 const ticketsCard = document.getElementById('ticketsCard');
 const ticketsList = document.getElementById('ticketsList');
+const idleState = document.getElementById('idleState');
 
 function updateTicketsVisibility() {
-    ticketsCard.style.display = ticketsList.children.length > 0 ? 'block' : 'none';
+    const hasTickets = ticketsList.children.length > 0;
+    ticketsCard.style.display = hasTickets ? 'block' : 'none';
+    idleState.style.display = hasTickets ? 'none' : 'flex';
 }
 
 function setKontrolButtonState(btn, channelId, code) {
@@ -158,6 +161,16 @@ function renderTicketCard(ticket) {
     holdBtn.className = 'ticket-btn hold-btn';
     setHoldButtonState(holdBtn, ticket.id, ticket.held);
     actions.appendChild(holdBtn);
+
+    if (ticket.resultUrl) {
+        const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
+        const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
+        const sonucBtn = document.createElement('button');
+        sonucBtn.className = `ticket-btn sonuc-btn sonuc-${verdictClass}`;
+        sonucBtn.innerHTML = `${iconHtml('external')}<span>Sonuç</span>`;
+        sonucBtn.onclick = () => shell.openExternal(ticket.resultUrl);
+        actions.appendChild(sonucBtn);
+    }
 
     card.appendChild(actions);
     return card;
@@ -267,6 +280,54 @@ ipcRenderer.on('app-version', (event, version) => {
 });
 
 ipcRenderer.send('request-app-version');
+
+// --- AYARLAR GÖRÜNÜMÜ (dişli / geri) ---
+const mainView = document.getElementById('mainView');
+const settingsView = document.getElementById('settingsView');
+const settingsBtn = document.getElementById('settingsBtn');
+const backBtn = document.getElementById('backBtn');
+
+settingsBtn.addEventListener('click', () => {
+    mainView.style.display = 'none';
+    settingsView.style.display = 'block';
+});
+
+backBtn.addEventListener('click', () => {
+    settingsView.style.display = 'none';
+    mainView.style.display = 'block';
+});
+
+// --- HESAP & SUNUCU AYARLARI ---
+const ACCOUNT_FIELDS = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'IGNORED_ROLE_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
+const accountErrorBox = document.getElementById('accountErrorBox');
+const saveAccountBtn = document.getElementById('saveAccountBtn');
+
+ipcRenderer.on('account-settings', (event, values) => {
+    ACCOUNT_FIELDS.forEach((key) => {
+        const el = document.getElementById(key);
+        if (el) el.value = values[key] || '';
+    });
+});
+
+saveAccountBtn.addEventListener('click', () => {
+    const values = {};
+    ACCOUNT_FIELDS.forEach((key) => {
+        values[key] = document.getElementById(key).value.trim();
+    });
+    accountErrorBox.style.display = 'none';
+    saveAccountBtn.disabled = true;
+    setButtonLabel(saveAccountBtn, 'Kaydediliyor...');
+    ipcRenderer.send('save-setup', values);
+});
+
+ipcRenderer.on('setup-error', (event, message) => {
+    accountErrorBox.textContent = message;
+    accountErrorBox.style.display = 'block';
+    saveAccountBtn.disabled = false;
+    setButtonLabel(saveAccountBtn, 'Kaydet ve Yeniden Başlat');
+});
+
+ipcRenderer.send('request-account-settings');
 
 // --- OSİLOSKOP TEMASI: MATRIX YAĞMURU ARKA PLANI ---
 function createMatrixRain(canvas) {
