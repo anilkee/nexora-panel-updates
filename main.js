@@ -41,7 +41,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.3.0';
+const CURRENT_VERSION = '1.4.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -104,7 +104,9 @@ function isConfigComplete() {
 
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
-const IGNORED_ROLE_ID = process.env.IGNORED_ROLE_ID;
+// Koddan sabit veriliyor (config.env üzerinden değil) - böylece bir güncelleme
+// yayınlandığında tüm kurulumlarda aynı anda değişir, her kullanıcı elle ayarlamaz.
+const IGNORED_ROLE_ID = '1470230341569609898';
 const ANTICHEAT_ROLE_ID = process.env.ANTICHEAT_ROLE_ID;
 const NEXORA_API_KEY = process.env.NEXORA_API_KEY;
 const NEXORA_BASE_URL = 'https://nexorascanner.ac/api/v1';
@@ -212,6 +214,8 @@ const myTickets = new Set();         // içinde en az bir mesaj yazdığım tick
 const warnedCategoryMismatch = new Set(); // kategori ID uyuşmazlığı için tekrar tekrar log basmayı önler
 const cheatingFlagged = new Set();    // "cheating" sonucu çıkan ticket kanal ID'leri (panelde kırmızı vurgu için)
 const channelLastResult = new Map();   // kanal ID -> { verdict, url } (panelde "Sonuç" butonu için, sadece bu oturumda tamamlanan taramalar)
+const channelLicense = new Map();      // kanal ID -> ticket açılışında botun mesajından yakalanan "license:..." değeri
+const banClickedOnce = new Set();      // ban butonuna en az bir kez basılmış ticket kanal ID'leri (2. basış /fg komutlarını sorar)
 
 function flagIfCheating(channelId, result) {
     if (String(result?.verdict).toLowerCase() === 'cheating') {
@@ -233,7 +237,8 @@ function getTicketChannels() {
                 scanCode: channelScans.get(ch.id) || null,
                 flagged: cheatingFlagged.has(ch.id),
                 resultVerdict: lastResult ? lastResult.verdict : null,
-                resultUrl: lastResult ? lastResult.url : null
+                resultUrl: lastResult ? lastResult.url : null,
+                banStage: banClickedOnce.has(ch.id) ? 'second' : 'first'
             };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -275,7 +280,6 @@ ipcMain.on('request-account-settings', (event) => {
             NEXORA_API_KEY: NEXORA_API_KEY || '',
             LOG_CHANNEL_ID: LOG_CHANNEL_ID || '',
             CATEGORY_ID: CATEGORY_ID || '',
-            IGNORED_ROLE_ID: IGNORED_ROLE_ID || '',
             ANTICHEAT_ROLE_ID: ANTICHEAT_ROLE_ID || '',
             IGNORED_IDS: ignoredIdsString || ''
         });
@@ -380,6 +384,12 @@ function performTicketCancel(channelId) {
 async function performTicketBan(channelId) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
+
+    // İkinci ve sonraki basışlar artık burada işlenmiyor - panel arayüzü bu durumda
+    // doğrudan performTicketBanConfirm'i (sebep girildikten sonra) çağırıyor. Bu kontrol
+    // sadece eski/gecikmiş bir isteğin yanlışlıkla ban mesajını tekrar atmasını engelliyor.
+    if (banClickedOnce.has(channelId)) return;
+
     await channel.send(BAN_MESSAGE);
     console.log(`[Panel] ${channel.name}: ban mesajı gönderildi.`);
 
@@ -388,6 +398,53 @@ async function performTicketBan(channelId) {
         await logMsg.edit(`${logMsg.content}\n\n🚫 **BAN**`);
         channelLastLogMessage.delete(channelId);
         console.log(`[Panel] ${channel.name}: log mesajına BAN notu düşüldü.`);
+    }
+
+    banClickedOnce.add(channelId);
+    broadcastTicketList();
+}
+
+// "/fg" komutunu barındıran botun (kullanıcı/uygulama) ID'si.
+const FG_BOT_ID = '1470758770790498377';
+
+async function performTicketBanConfirm(channelId, reason) {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+
+    const license = channelLicense.get(channelId);
+    if (!license) {
+        console.log(`[Panel] ${channel.name}: lisans yakalanmamış, /fg komutları gönderilmedi.`);
+        if (mainWindow) {
+            dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                title: 'Lisans Bulunamadı',
+                message: `${channel.name} kanalında bir lisans yakalanmadı, /fg komutları gönderilemedi.`,
+                buttons: ['Tamam']
+            });
+        }
+        return;
+    }
+
+    const safeReason = String(reason || '').trim();
+    if (!safeReason) {
+        console.log(`[Panel] ${channel.name}: sebep boş, /fg komutları gönderilmedi.`);
+        return;
+    }
+
+    try {
+        await channel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
+        await channel.sendSlash(FG_BOT_ID, 'fg ban', license, safeReason);
+        console.log(`[Panel] ${channel.name}: /fg ban slash komutları gönderildi (${license}).`);
+    } catch (error) {
+        console.log(`[Hata] "/fg" slash komutu gönderilemedi: ${error.message}`);
+        if (mainWindow) {
+            dialog.showMessageBox(mainWindow, {
+                type: 'error',
+                title: 'Ban Komutu Gönderilemedi',
+                message: `"/fg" komutu gönderilirken hata oluştu:\n${error.message}`,
+                buttons: ['Tamam']
+            });
+        }
     }
 }
 
@@ -420,6 +477,14 @@ ipcMain.on('ticket-ban', async (event, channelId) => {
         await performTicketBan(channelId);
     } catch (error) {
         console.log(`[Hata] Ban mesajı gönderilemedi: ${error.message}`);
+    }
+});
+
+ipcMain.on('ticket-ban-confirm', async (event, { channelId, reason }) => {
+    try {
+        await performTicketBanConfirm(channelId, reason);
+    } catch (error) {
+        console.log(`[Hata] /fg ban komutları gönderilemedi: ${error.message}`);
     }
 });
 
@@ -492,7 +557,7 @@ const mobileServer = http.createServer(async (req, res) => {
         return sendJson(res, 200, getTicketChannels());
     }
 
-    const actionMatch = reqUrl.pathname.match(/^\/api\/tickets\/(\d+)\/(kontrol|cancel|ban|hold)$/);
+    const actionMatch = reqUrl.pathname.match(/^\/api\/tickets\/(\d+)\/(kontrol|cancel|ban|hold|ban-confirm)$/);
     if (req.method === 'POST' && actionMatch) {
         if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
         const [, channelId, action] = actionMatch;
@@ -501,6 +566,13 @@ const mobileServer = http.createServer(async (req, res) => {
             else if (action === 'cancel') performTicketCancel(channelId);
             else if (action === 'ban') await performTicketBan(channelId);
             else if (action === 'hold') performTicketHold(channelId);
+            else if (action === 'ban-confirm') {
+                let body = '';
+                for await (const chunk of req) body += chunk;
+                let reason = '';
+                try { reason = JSON.parse(body || '{}').reason || ''; } catch (e) {}
+                await performTicketBanConfirm(channelId, reason);
+            }
             return sendJson(res, 200, { ok: true });
         } catch (error) {
             return sendJson(res, 500, { ok: false, error: error.message });
@@ -650,6 +722,24 @@ client.on('channelCreate', async (channel) => {
         if (mainWindow) {
             mainWindow.webContents.send('ticket-geldi');
         }
+
+        // Discord bu event'i sadece gerçekten yeni açılan kanallarda değil, bir kanal
+        // izin/rol değişikliği (örn. claim edilmesi) yüzünden bize sonradan görünür
+        // olduğunda da gönderebiliyor. İçinde zaten insan mesajı varsa bu eski bir
+        // ticket demektir - otomatik karşılama listesine ekleyip eski konuşmaya
+        // tekrar "hoş geldin" mesajı atmayalım.
+        try {
+            const recentMessages = await channel.messages.fetch({ limit: 10 });
+            const hasHumanMessage = recentMessages.some((m) => !m.author.bot);
+            if (hasHumanMessage) {
+                console.log(`[Karşılama] "${channel.name}" zaten insan mesajı içeriyor, otomatik karşılama uygulanmayacak.`);
+                broadcastTicketList();
+                return;
+            }
+        } catch (error) {
+            console.log(`[Karşılama] "${channel.name}" geçmişi kontrol edilemedi: ${error.message}`);
+        }
+
         activeTickets.add(channel.id);
         broadcastTicketList();
     }
@@ -665,6 +755,8 @@ client.on('channelDelete', (channel) => {
         myTickets.delete(channel.id);
         cheatingFlagged.delete(channel.id);
         channelLastResult.delete(channel.id);
+        channelLicense.delete(channel.id);
+        banClickedOnce.delete(channel.id);
         broadcastTicketList();
     }
 });
@@ -675,6 +767,23 @@ client.on('messageCreate', async (message) => {
     if (heldTickets.has(message.channel.id) && !message.author.bot && message.author.id !== client.user.id) {
         console.log(`[Beklet] ${message.channel.name} kanalında yeni mesaj var.`);
         if (mainWindow) mainWindow.webContents.send('ticket-geldi');
+    }
+
+    // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
+    if (message.channel.parentId === CATEGORY_ID && message.author.bot) {
+        const combinedText = [
+            message.content || '',
+            ...message.embeds.flatMap((e) => [
+                e.title || '',
+                e.description || '',
+                ...(e.fields || []).map((f) => `${f.name} ${f.value}`)
+            ])
+        ].join(' ');
+        const licenseMatch = combinedText.match(/license:[a-f0-9]+/i);
+        if (licenseMatch) {
+            channelLicense.set(message.channel.id, licenseMatch[0]);
+            console.log(`[Lisans] ${message.channel.name} için lisans yakalandı: ${licenseMatch[0]}`);
+        }
     }
 
     // --- YENİ OTOMATİK KARŞILAMA SİSTEMİ ---
