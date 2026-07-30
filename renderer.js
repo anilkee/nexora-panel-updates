@@ -127,6 +127,60 @@ function setHoldButtonState(btn, channelId, held) {
     btn.onclick = () => ipcRenderer.send('ticket-hold', channelId);
 }
 
+let banReasonOpenFor = null; // sebep girilirken ticket listesinin yenilenip alanı silmesini önler
+
+function toggleBanReasonRow(card, channelId) {
+    const existing = card.querySelector('.ban-reason-row');
+    if (existing) {
+        existing.remove();
+        banReasonOpenFor = null;
+        return;
+    }
+
+    banReasonOpenFor = channelId;
+
+    const row = document.createElement('div');
+    row.className = 'ban-reason-row';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Ban sebebi (örn: 3.p-dilber)';
+    input.className = 'ban-reason-input';
+
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'ticket-btn ban-btn';
+    sendBtn.innerHTML = `${iconHtml('check')}<span>Gönder</span>`;
+    const submit = () => {
+        if (!input.value.trim()) {
+            input.focus();
+            return;
+        }
+        ipcRenderer.send('ticket-ban-confirm', { channelId, reason: input.value.trim() });
+        row.remove();
+        banReasonOpenFor = null;
+    };
+    sendBtn.onclick = submit;
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ticket-btn';
+    cancelBtn.innerHTML = iconHtml('x');
+    cancelBtn.setAttribute('aria-label', 'İptal');
+    cancelBtn.onclick = () => {
+        row.remove();
+        banReasonOpenFor = null;
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submit();
+    });
+
+    row.appendChild(input);
+    row.appendChild(sendBtn);
+    row.appendChild(cancelBtn);
+    card.appendChild(row);
+    input.focus();
+}
+
 function renderTicketCard(ticket) {
     const card = document.createElement('div');
     card.className = 'ticket-card' + (ticket.flagged ? ' flagged' : '');
@@ -152,9 +206,15 @@ function renderTicketCard(ticket) {
     actions.appendChild(kontrolBtn);
 
     const banBtn = document.createElement('button');
-    banBtn.className = 'ticket-btn ban-btn';
+    banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
     banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
-    banBtn.onclick = () => ipcRenderer.send('ticket-ban', ticket.id);
+    banBtn.onclick = () => {
+        if (ticket.banStage === 'second') {
+            toggleBanReasonRow(card, ticket.id);
+        } else {
+            ipcRenderer.send('ticket-ban', ticket.id);
+        }
+    };
     actions.appendChild(banBtn);
 
     const holdBtn = document.createElement('button');
@@ -177,6 +237,7 @@ function renderTicketCard(ticket) {
 }
 
 function renderTicketList(tickets) {
+    if (banReasonOpenFor) return; // sebep girilirken listeyi yenileyip alanı silme
     ticketsList.innerHTML = '';
     tickets.forEach((ticket) => ticketsList.appendChild(renderTicketCard(ticket)));
     updateTicketsVisibility();
@@ -298,7 +359,7 @@ backBtn.addEventListener('click', () => {
 });
 
 // --- HESAP & SUNUCU AYARLARI ---
-const ACCOUNT_FIELDS = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'IGNORED_ROLE_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
+const ACCOUNT_FIELDS = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
 const accountErrorBox = document.getElementById('accountErrorBox');
 const saveAccountBtn = document.getElementById('saveAccountBtn');
 
