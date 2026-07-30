@@ -78,10 +78,37 @@
         body[data-theme="b"] .logo-box .logo-b,
         body[data-theme="c"] .logo-box .logo-c { display: block; }
 
+        .header-text { flex: 1; min-width: 0; }
         .header h1 { font-family: var(--font-display); font-size: 15px; margin: 0; color: var(--text-hi); font-weight: 600; }
         body[data-theme="b"] .header h1 { text-transform: uppercase; letter-spacing: .05em; }
         .header .ver { font-size: 10px; font-weight: 400; color: var(--text-lo); margin-left: 6px; }
         .header p { font-size: 11px; color: var(--text-lo); margin: 2px 0 0; }
+
+        .icon-btn {
+            background: transparent; border: 1px solid var(--border-c); color: var(--text-lo);
+            border-radius: calc(var(--radius-card) - 1px); width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+            transition: color .15s, border-color .15s;
+        }
+        .icon-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+        .icon-btn .icon { width: 16px; height: 16px; }
+
+        .settings-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .settings-title { font-family: var(--font-display); font-size: 14px; color: var(--text-hi); margin: 0; font-weight: 600; }
+        body[data-theme="b"] .settings-title { text-transform: uppercase; letter-spacing: .05em; }
+
+        .idle-state {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 12px; padding: 60px 20px; color: var(--text-lo); text-align: center;
+        }
+        .idle-state .icon { width: 40px; height: 40px; opacity: .35; }
+        .idle-state p { margin: 0; font-size: 13px; font-weight: 600; }
+
+        .error-box {
+            background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger);
+            border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+            padding: 10px 12px; border-radius: calc(var(--radius-card) - 1px); font-size: 12px; margin-bottom: 12px;
+        }
 
         .card {
             background: var(--bg-panel);
@@ -125,7 +152,7 @@
             border-radius: 999px; padding: 1px 7px 1px 6px; font-weight: 600;
             display: inline-flex; align-items: center; gap: 3px;
         }
-        .ticket-actions { display: flex; gap: 6px; }
+        .ticket-actions { display: flex; flex-wrap: wrap; gap: 6px; }
         .ticket-btn {
             flex: 1; border: 1px solid var(--border-c); background: transparent;
             color: var(--text-hi); border-radius: calc(var(--radius-card) - 1px);
@@ -139,6 +166,10 @@
         .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
         .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .ticket-btn.sonuc-btn.sonuc-neutral { color: var(--accent); border-color: var(--accent-dim); }
 
         .field { margin-bottom: 12px; }
         .field:last-child { margin-bottom: 0; }
@@ -245,85 +276,139 @@
                     <circle cx="20" cy="19" r="4" fill="#fff" opacity="0.9"/>
                 </svg>
             </div>
-            <div>
+            <div class="header-text">
                 <h1>Nexora Kontrol Merkezi<span class="ver" id="versionLabel"></span></h1>
                 <p>Ticket &amp; tarama otomasyonu</p>
             </div>
+            <button class="icon-btn" id="settingsBtn" type="button" aria-label="Ayarlar">
+                <svg class="icon"><use href="#icon-settings"></use></svg>
+            </button>
         </div>
 
-        <div class="card" id="ticketsCard">
-            <h2><svg class="icon"><use href="#icon-ticket"></use></svg>Aktif Ticketlar</h2>
-            <div id="ticketsList"></div>
-        </div>
-
-        <div class="card">
-            <h2><svg class="icon"><use href="#icon-bell"></use></svg>Bildirim</h2>
-            <div class="field">
-                <label>Ticket Bildirim Sesi</label>
-                <select id="soundSelect">
-                    <option value="bildirim1.mp3">Standart Bildirim 1</option>
-                    <option value="bildirim2.mp3">Standart Bildirim 2</option>
-                    <option value="bildirim3.mp3">Standart Bildirim 3</option>
-                    <option value="bildirim4.mp3" selected>Standart Bildirim 4</option>
-                    <option value="bildirim5.mp3">Standart Bildirim 5</option>
-                </select>
+        <div id="mainView">
+            <div class="card" id="ticketsCard">
+                <h2><svg class="icon"><use href="#icon-ticket"></use></svg>Aktif Ticketlar</h2>
+                <div id="ticketsList"></div>
             </div>
-            <div class="field">
-                <div class="volume-row">
-                    <label>Ses Düzeyi</label>
-                    <span class="volume-value" id="volumeLabel">%5</span>
+
+            <div class="card" id="activeScansCard">
+                <h2><svg class="icon"><use href="#icon-radar"></use></svg>Aktif Taramalar</h2>
+                <div id="activeScansList"></div>
+            </div>
+
+            <div class="idle-state" id="idleState">
+                <svg class="icon"><use href="#icon-ticket"></use></svg>
+                <p>Ticket bekleniyor...</p>
+            </div>
+        </div>
+
+        <div id="settingsView" style="display: none;">
+            <div class="settings-header">
+                <button class="icon-btn" id="backBtn" type="button" aria-label="Geri">
+                    <svg class="icon"><use href="#icon-back"></use></svg>
+                </button>
+                <h2 class="settings-title">Ayarlar</h2>
+            </div>
+
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-palette"></use></svg>Görünüm</h2>
+                <div class="theme-picker">
+                    <button class="theme-btn" data-theme="a"><span class="swatch swatch-a"></span>Osiloskop</button>
+                    <button class="theme-btn" data-theme="b"><span class="swatch swatch-b"></span>Nöbet Masası</button>
+                    <button class="theme-btn" data-theme="c"><span class="swatch swatch-c"></span>Kristal Kalkan</button>
                 </div>
-                <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.05">
             </div>
-            <button class="primary" id="testBtn"><svg class="icon"><use href="#icon-play-fill"></use></svg>Sesi Test Et</button>
-        </div>
 
-        <div class="card">
-            <h2><svg class="icon"><use href="#icon-mail"></use></svg>Karşılama</h2>
-            <div class="toggle-row">
-                <span>Otomatik Karşılama</span>
-                <label class="switch">
-                    <input type="checkbox" id="autoReplyToggle">
-                    <span class="slider-toggle"></span>
-                </label>
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-bell"></use></svg>Bildirim</h2>
+                <div class="field">
+                    <label>Ticket Bildirim Sesi</label>
+                    <select id="soundSelect">
+                        <option value="bildirim1.mp3">Standart Bildirim 1</option>
+                        <option value="bildirim2.mp3">Standart Bildirim 2</option>
+                        <option value="bildirim3.mp3">Standart Bildirim 3</option>
+                        <option value="bildirim4.mp3" selected>Standart Bildirim 4</option>
+                        <option value="bildirim5.mp3">Standart Bildirim 5</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <div class="volume-row">
+                        <label>Ses Düzeyi</label>
+                        <span class="volume-value" id="volumeLabel">%5</span>
+                    </div>
+                    <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.05">
+                </div>
+                <button class="primary" id="testBtn"><svg class="icon"><use href="#icon-play-fill"></use></svg>Sesi Test Et</button>
             </div>
-            <div class="field" style="margin-top: 12px;">
-                <label>Karşılama Mesajı (boş bırakırsan sticker atılır)</label>
-                <textarea id="welcomeMessageInput" rows="3" placeholder="Örn: Merhaba, ticket'ınız alındı, en kısa sürede ilgilenilecektir."></textarea>
+
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-mail"></use></svg>Karşılama</h2>
+                <div class="toggle-row">
+                    <span>Otomatik Karşılama</span>
+                    <label class="switch">
+                        <input type="checkbox" id="autoReplyToggle">
+                        <span class="slider-toggle"></span>
+                    </label>
+                </div>
+                <div class="field" style="margin-top: 12px;">
+                    <label>Karşılama Mesajı (boş bırakırsan sticker atılır)</label>
+                    <textarea id="welcomeMessageInput" rows="3" placeholder="Örn: Merhaba, ticket'ınız alındı, en kısa sürede ilgilenilecektir."></textarea>
+                </div>
+                <button class="primary" id="saveWelcomeMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
             </div>
-            <button class="primary" id="saveWelcomeMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
-        </div>
 
-        <div class="card">
-            <h2><svg class="icon"><use href="#icon-radar"></use></svg>Tarama Mesajı</h2>
-            <div class="field">
-                <label>"Kontrol" başlatıldığında hedefe atılacak mesaj</label>
-                <textarea id="scanMessageInput" rows="2" placeholder="Programı çalıştırıp tam ekran ss atar mısınız?"></textarea>
-                <p class="hint">Mesajın sonuna hedef kullanıcının etiketi (@) her zaman otomatik eklenir.</p>
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-radar"></use></svg>Tarama Mesajı</h2>
+                <div class="field">
+                    <label>"Kontrol" başlatıldığında hedefe atılacak mesaj</label>
+                    <textarea id="scanMessageInput" rows="2" placeholder="Programı çalıştırıp tam ekran ss atar mısınız?"></textarea>
+                    <p class="hint">Mesajın sonuna hedef kullanıcının etiketi (@) her zaman otomatik eklenir.</p>
+                </div>
+                <button class="primary" id="saveScanMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
             </div>
-            <button class="primary" id="saveScanMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
-        </div>
 
-        <div class="card" id="activeScansCard">
-            <h2><svg class="icon"><use href="#icon-radar"></use></svg>Aktif Taramalar</h2>
-            <div id="activeScansList"></div>
-        </div>
-
-        <div class="card">
-            <h2><svg class="icon"><use href="#icon-phone"></use></svg>Mobil Erişim</h2>
-            <div class="field">
-                <label>Aynı Wi-Fi'daki telefondan aç</label>
-                <input type="text" id="mobileUrlField" readonly value="Bağlanılıyor...">
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-phone"></use></svg>Mobil Erişim</h2>
+                <div class="field">
+                    <label>Aynı Wi-Fi'daki telefondan aç</label>
+                    <input type="text" id="mobileUrlField" readonly value="Bağlanılıyor...">
+                </div>
+                <button class="primary" id="copyMobileUrlBtn"><svg class="icon"><use href="#icon-copy"></use></svg><span class="label">Linki Kopyala</span></button>
             </div>
-            <button class="primary" id="copyMobileUrlBtn"><svg class="icon"><use href="#icon-copy"></use></svg><span class="label">Linki Kopyala</span></button>
-        </div>
 
-        <div class="card">
-            <h2><svg class="icon"><use href="#icon-palette"></use></svg>Görünüm</h2>
-            <div class="theme-picker">
-                <button class="theme-btn" data-theme="a"><span class="swatch swatch-a"></span>Osiloskop</button>
-                <button class="theme-btn" data-theme="b"><span class="swatch swatch-b"></span>Nöbet Masası</button>
-                <button class="theme-btn" data-theme="c"><span class="swatch swatch-c"></span>Kristal Kalkan</button>
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-key"></use></svg>Hesap &amp; Sunucu</h2>
+                <div id="accountErrorBox" class="error-box" style="display: none;"></div>
+                <div class="field">
+                    <label>Discord Hesap Token'ı</label>
+                    <input type="password" id="USER_TOKEN" placeholder="Discord token">
+                </div>
+                <div class="field">
+                    <label>Nexora API Anahtarı</label>
+                    <input type="password" id="NEXORA_API_KEY" placeholder="nxr_...">
+                </div>
+                <div class="field">
+                    <label>Log Kanalı ID</label>
+                    <input type="text" id="LOG_CHANNEL_ID">
+                </div>
+                <div class="field">
+                    <label>Ticket Kategori ID</label>
+                    <input type="text" id="CATEGORY_ID">
+                </div>
+                <div class="field">
+                    <label>Görmezden Gelinecek Rol ID</label>
+                    <input type="text" id="IGNORED_ROLE_ID">
+                </div>
+                <div class="field">
+                    <label>Diğer Anticheat Botunun Rol ID'si</label>
+                    <input type="text" id="ANTICHEAT_ROLE_ID">
+                </div>
+                <div class="field">
+                    <label>Görmezden Gelinecek Kullanıcı ID'leri</label>
+                    <input type="text" id="IGNORED_IDS">
+                </div>
+                <p class="hint">Kaydedince uygulama otomatik olarak yeniden başlar.</p>
+                <button class="primary" id="saveAccountBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Kaydet ve Yeniden Başlat</span></button>
             </div>
         </div>
 
@@ -342,10 +427,14 @@
             <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><rect x="9" y="9" width="12" height="12" rx="2"/></symbol>
             <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
             <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
+            <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/></symbol>
             <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play-fill" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 4.2l1.8 1.8M17.9 17.9l1.8 1.8M3 12h2.5M18.5 12H21M4.2 19.8l1.8-1.8M17.9 6.1l1.8-1.8"/></symbol>
+            <symbol id="icon-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+            <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l2 2M14 9l2 2"/></symbol>
         </defs>
     </svg>
 
