@@ -1,4 +1,4 @@
 {
-  "version": "1.3.0",
-  "changelog": "- Ticket kartina \"Sonuc\" butonu eklendi: tarama tamamlaninca log kanalina atilanla ayni linki tarayicida acar, sonuca gore renklenir (clean=yesil, supheli=turuncu, cheating=kirmizi)\n- PC panelinde ana ekran sadelesti: sadece ticket listesi ve durum gosteriliyor\n- Gorunum, bildirim, karsilama, tarama mesaji, mobil erisim artik yeni bir Ayarlar ekraninda (disli butonu)\n- Ayarlar ekranina Discord token / Nexora API anahtari / kanal-rol ID lerini degistirebilecek Hesap & Sunucu karti eklendi\n- config.env kaydetme mantigi duzeltildi: hesap ayarlarini kaydederken karsilama/tarama mesaji gibi diger ayarlar artik silinmiyor"
+  "version": "1.4.0",
+  "changelog": "- Ban butonuna 2 asamali /fg ban akisi: 1. basis normal ban mesaji, 2. basista sebep sorup gercek /fg offline-ban + /fg ban slash komutlarini (license ile) gonderiyor\n- Ticket acilinca botun mesajindaki lisans otomatik yakalaniyor\n- Otomatik karsilamanin eski/zaten yazilmis ticketlara tekrar hos geldin mesaji atma hatasi duzeltildi\n- Gormezden gelinecek rol ID artik kod icinde sabit, kisisel ayardan kaldirildi"
 }
