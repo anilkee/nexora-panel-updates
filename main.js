@@ -41,7 +41,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.2.0';
+const CURRENT_VERSION = '1.3.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -135,6 +135,38 @@ let welcomeMessage = process.env.WELCOME_MESSAGE || '';
 const DEFAULT_SCAN_MESSAGE = 'Programı çalıştırıp tam ekran ss atar mısınız?';
 let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
 
+// config.env satırı üretir - değer içinde satır sonu/tırnak olsa da güvenle saklanır.
+function formatConfigLine(key, value) {
+    const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    return `${key}="${escaped}"`;
+}
+
+// config.env'i { KEY: value } objesi olarak okur (tırnaklı/kaçışlı ya da düz satırları da anlar).
+function readConfigEnvAsObject() {
+    const result = {};
+    try {
+        const content = fs.readFileSync(CONFIG_ENV_PATH, 'utf8');
+        for (const line of content.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const idx = trimmed.indexOf('=');
+            if (idx === -1) continue;
+            const key = trimmed.slice(0, idx);
+            let value = trimmed.slice(idx + 1);
+            if (value.startsWith('"') && value.endsWith('"')) {
+                value = value.slice(1, -1)
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+            }
+            result[key] = value;
+        }
+    } catch (error) {
+        // config.env henüz yoksa (ilk kurulum) boş obje döneriz
+    }
+    return result;
+}
+
 // Panel ayarlarını config.env'e kalıcı olarak yazan genel yardımcı fonksiyon.
 function saveConfigValue(key, value) {
     let lines = [];
@@ -146,8 +178,7 @@ function saveConfigValue(key, value) {
         console.log(`[Ayar] config.env okunamadı: ${error.message}`);
     }
     if (value) {
-        const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-        lines.push(`${key}="${escaped}"`);
+        lines.push(formatConfigLine(key, value));
     }
     try {
         fs.writeFileSync(CONFIG_ENV_PATH, lines.join('\n') + '\n');
@@ -180,6 +211,7 @@ const channelLastLogMessage = new Map(); // kanal ID -> o kanalın en son sonuç
 const myTickets = new Set();         // içinde en az bir mesaj yazdığım ticket kanal ID'leri
 const warnedCategoryMismatch = new Set(); // kategori ID uyuşmazlığı için tekrar tekrar log basmayı önler
 const cheatingFlagged = new Set();    // "cheating" sonucu çıkan ticket kanal ID'leri (panelde kırmızı vurgu için)
+const channelLastResult = new Map();   // kanal ID -> { verdict, url } (panelde "Sonuç" butonu için, sadece bu oturumda tamamlanan taramalar)
 
 function flagIfCheating(channelId, result) {
     if (String(result?.verdict).toLowerCase() === 'cheating') {
@@ -192,13 +224,18 @@ function flagIfCheating(channelId, result) {
 function getTicketChannels() {
     return client.channels.cache
         .filter((ch) => ch.parentId === CATEGORY_ID && myTickets.has(ch.id))
-        .map((ch) => ({
-            id: ch.id,
-            name: ch.name,
-            held: heldTickets.has(ch.id),
-            scanCode: channelScans.get(ch.id) || null,
-            flagged: cheatingFlagged.has(ch.id)
-        }))
+        .map((ch) => {
+            const lastResult = channelLastResult.get(ch.id);
+            return {
+                id: ch.id,
+                name: ch.name,
+                held: heldTickets.has(ch.id),
+                scanCode: channelScans.get(ch.id) || null,
+                flagged: cheatingFlagged.has(ch.id),
+                resultVerdict: lastResult ? lastResult.verdict : null,
+                resultUrl: lastResult ? lastResult.url : null
+            };
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -229,6 +266,20 @@ ipcMain.on('request-mobile-url', (event) => {
 });
 ipcMain.on('request-app-version', (event) => {
     if (mainWindow) mainWindow.webContents.send('app-version', CURRENT_VERSION);
+});
+
+ipcMain.on('request-account-settings', (event) => {
+    if (mainWindow) {
+        mainWindow.webContents.send('account-settings', {
+            USER_TOKEN: process.env.USER_TOKEN || '',
+            NEXORA_API_KEY: NEXORA_API_KEY || '',
+            LOG_CHANNEL_ID: LOG_CHANNEL_ID || '',
+            CATEGORY_ID: CATEGORY_ID || '',
+            IGNORED_ROLE_ID: IGNORED_ROLE_ID || '',
+            ANTICHEAT_ROLE_ID: ANTICHEAT_ROLE_ID || '',
+            IGNORED_IDS: ignoredIdsString || ''
+        });
+    }
 });
 
 ipcMain.on('toggle-auto-reply', (event, status) => {
@@ -550,10 +601,13 @@ ipcMain.on('save-setup', (event, values) => {
         }
     }
 
-    const merged = { ...values, MOBILE_ACCESS_TOKEN };
+    // Mevcut config.env'deki diğer ayarları (karşılama/tarama mesajı vb.) korumak için
+    // önce onun üstüne, sonra yeni değerlerin üstüne yazıyoruz - panel içi Ayarlar'dan
+    // sadece hesap/sunucu alanları değiştiğinde diğer ayarlar silinmesin diye.
+    const merged = { ...readConfigEnvAsObject(), ...values, MOBILE_ACCESS_TOKEN };
     const lines = Object.entries(merged)
         .filter(([, v]) => v && String(v).trim())
-        .map(([k, v]) => `${k}=${String(v).trim()}`)
+        .map(([k, v]) => formatConfigLine(k, String(v).trim()))
         .join('\n');
 
     try {
@@ -610,6 +664,7 @@ client.on('channelDelete', (channel) => {
         channelLastLogMessage.delete(channel.id);
         myTickets.delete(channel.id);
         cheatingFlagged.delete(channel.id);
+        channelLastResult.delete(channel.id);
         broadcastTicketList();
     }
 });
@@ -931,7 +986,9 @@ async function sendToLogChannel(code, userId, originalMessage) {
                     console.log(`[Log] Tarama tamamlandı, ${url} açıldı.`);
                     await sentMsg.edit(buildResultMessage(code, userId, result, url));
                     channelLastLogMessage.set(originalMessage.channel.id, sentMsg);
+                    channelLastResult.set(originalMessage.channel.id, { verdict: result.verdict, url });
                     flagIfCheating(originalMessage.channel.id, result);
+                    broadcastTicketList();
                     finishScan(code);
                 } else {
                     console.log('[Log] Tarama zaman aşımına uğradı, tarayıcı açılmadı. Gerekirse linki elle aç:', url);
@@ -1000,7 +1057,9 @@ async function startKontrolScan(channel, targetUserId) {
             const logMsg = await logChannel.send(buildResultMessage(code, targetUserId, result, resultUrl));
             channelLastLogMessage.set(channel.id, logMsg);
         }
+        channelLastResult.set(channel.id, { verdict: result.verdict, url: resultUrl });
         flagIfCheating(channel.id, result);
+        broadcastTicketList();
         finishScan(code);
     } else {
         console.log('[Kontrol] Tarama zaman aşımına uğradı, tarayıcı açılmadı. Gerekirse linki elle aç:', resultUrl);
