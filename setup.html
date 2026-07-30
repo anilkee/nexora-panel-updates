@@ -199,11 +199,6 @@
                 <input type="text" id="CATEGORY_ID" value="1470230380572573706">
             </div>
             <div class="field">
-                <label>Görmezden Gelinecek Rol ID <span class="optional-badge">önceden dolu</span></label>
-                <span class="hint">Bu role sahip biri ticket'a yazarsa otomatik karşılama tetiklenmez.</span>
-                <input type="text" id="IGNORED_ROLE_ID" value="1470230357130350734">
-            </div>
-            <div class="field">
                 <label>Diğer Anticheat Botunun Rol ID'si <span class="optional-badge">önceden dolu</span></label>
                 <span class="hint">"kontrol" hedef ararken bu role sahip kullanıcıların mesajlarını atlar.</span>
                 <input type="text" id="ANTICHEAT_ROLE_ID" value="1470230341569609898">
@@ -311,7 +306,7 @@
             });
         });
 
-        const fields = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'IGNORED_ROLE_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
+        const fields = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
         const errorBox = document.getElementById('errorBox');
         const saveBtn = document.getElementById('saveBtn');
         const saveBtnLabel = saveBtn.querySelector('.label');
