@@ -164,6 +164,13 @@
         .ticket-btn.kontrol-btn { color: var(--accent); border-color: var(--accent-dim); }
         .ticket-btn.kontrol-btn.active { color: var(--danger); border-color: var(--danger); }
         .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .ticket-btn.ban-btn.active { box-shadow: 0 0 0 1px var(--danger); }
+        .ban-reason-row { display: flex; gap: 6px; margin-top: 8px; }
+        .ban-reason-row .ban-reason-input {
+            flex: 1; padding: 6px 8px; border-radius: calc(var(--radius-card) - 1px);
+            background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c); font-size: 11px;
+        }
+        .ban-reason-row .ticket-btn { flex: 0 0 auto; padding-left: 8px; padding-right: 8px; }
         .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
@@ -394,10 +401,6 @@
                 <div class="field">
                     <label>Ticket Kategori ID</label>
                     <input type="text" id="CATEGORY_ID">
-                </div>
-                <div class="field">
-                    <label>Görmezden Gelinecek Rol ID</label>
-                    <input type="text" id="IGNORED_ROLE_ID">
                 </div>
                 <div class="field">
                     <label>Diğer Anticheat Botunun Rol ID'si</label>
