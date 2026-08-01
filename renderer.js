@@ -351,6 +351,7 @@ const backBtn = document.getElementById('backBtn');
 settingsBtn.addEventListener('click', () => {
     mainView.style.display = 'none';
     settingsView.style.display = 'block';
+    ipcRenderer.send('request-debug-log');
 });
 
 backBtn.addEventListener('click', () => {
@@ -389,6 +390,54 @@ ipcRenderer.on('setup-error', (event, message) => {
 });
 
 ipcRenderer.send('request-account-settings');
+
+// --- LOG GÖRÜNTÜLEME ---
+const debugLogView = document.getElementById('debugLogView');
+const refreshLogBtn = document.getElementById('refreshLogBtn');
+const openLogFolderBtn = document.getElementById('openLogFolderBtn');
+
+ipcRenderer.on('debug-log', (event, text) => {
+    debugLogView.textContent = text || '(log boş)';
+    debugLogView.scrollTop = debugLogView.scrollHeight;
+});
+
+refreshLogBtn.addEventListener('click', () => ipcRenderer.send('request-debug-log'));
+openLogFolderBtn.addEventListener('click', () => ipcRenderer.send('open-debug-log-folder'));
+
+ipcRenderer.send('request-debug-log');
+
+// --- SİSTEM DURUMU ---
+const statusDots = {
+    discord: document.getElementById('statusDiscordDot'),
+    nexora: document.getElementById('statusNexoraDot'),
+    mobile: document.getElementById('statusMobileDot')
+};
+const statusTexts = {
+    discord: document.getElementById('statusDiscordText'),
+    nexora: document.getElementById('statusNexoraText'),
+    mobile: document.getElementById('statusMobileText')
+};
+
+function setStatusRow(key, level, text) {
+    statusDots[key].className = `status-dot ${level}`;
+    statusTexts[key].textContent = text;
+}
+
+ipcRenderer.on('system-status', (event, status) => {
+    setStatusRow(
+        'discord',
+        status.discord === 'bağlı' ? 'ok' : status.discord === 'hata' ? 'danger' : 'warn',
+        status.discord === 'bağlı' ? 'Bağlı' : status.discord === 'hata' ? 'Bağlantı hatası' : 'Bağlanıyor...'
+    );
+    setStatusRow(
+        'nexora',
+        status.nexora === 'sağlıklı' ? 'ok' : status.nexora === 'sorunlu' ? 'danger' : 'warn',
+        status.nexora === 'sağlıklı' ? 'Sağlıklı' : status.nexora === 'sorunlu' ? 'Sorunlu' : 'Kontrol ediliyor...'
+    );
+    setStatusRow('mobile', status.mobile ? 'ok' : 'warn', status.mobile ? 'Aktif' : 'Başlatılıyor...');
+});
+
+ipcRenderer.send('request-system-status');
 
 // --- OSİLOSKOP TEMASI: MATRIX YAĞMURU ARKA PLANI ---
 function createMatrixRain(canvas) {
