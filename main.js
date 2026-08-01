@@ -74,7 +74,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.5.0';
+const CURRENT_VERSION = '1.6.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -187,6 +187,9 @@ let welcomeMessage = process.env.WELCOME_MESSAGE || '';
 const DEFAULT_SCAN_MESSAGE = 'Programı çalıştırıp tam ekran ss atar mısınız?';
 let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
 
+const DEFAULT_BAN_MESSAGE = '3. parti yazılım sebebiyle banlandınız, itiraz için ac masterlara yazabilirsiniz.';
+let banMessage = process.env.BAN_MESSAGE || DEFAULT_BAN_MESSAGE;
+
 // config.env satırı üretir - değer içinde satır sonu/tırnak olsa da güvenle saklanır.
 function formatConfigLine(key, value) {
     const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
@@ -256,6 +259,12 @@ function saveScanMessageToConfig(text) {
     saveConfigValue('SCAN_MESSAGE', text);
     console.log('[Tarama Mesajı] Mesaj kaydedildi.');
 }
+
+function saveBanMessageToConfig(text) {
+    banMessage = text || DEFAULT_BAN_MESSAGE;
+    saveConfigValue('BAN_MESSAGE', text);
+    console.log('[Ban Mesajı] Mesaj kaydedildi.');
+}
 const activeTickets = new Set();
 const heldTickets = new Set();       // beklemeye alınmış ticket kanal ID'leri
 const channelScans = new Map();      // kanal ID -> o kanalda süren "kontrol" tarama kodu
@@ -265,6 +274,8 @@ const warnedCategoryMismatch = new Set(); // kategori ID uyuşmazlığı için t
 const cheatingFlagged = new Set();    // "cheating" sonucu çıkan ticket kanal ID'leri (panelde kırmızı vurgu için)
 const channelLastResult = new Map();   // kanal ID -> { verdict, url } (panelde "Sonuç" butonu için, sadece bu oturumda tamamlanan taramalar)
 const channelLicense = new Map();      // kanal ID -> ticket açılışında botun mesajından yakalanan "license:..." değeri
+const channelGameId = new Map();       // kanal ID -> "Oyun İçi ID" alanındaki sayı (kullanıcı oyundaysa), yoksa yok
+const channelTicketMenuMessageId = new Map(); // kanal ID -> "Lütfen yapacağınız işlemi seçin" select menu'sünü barındıran mesajın ID'si
 const banClickedOnce = new Set();      // ban butonuna en az bir kez basılmış ticket kanal ID'leri (2. basış /fg komutlarını sorar)
 
 function flagIfCheating(channelId, result) {
@@ -277,12 +288,13 @@ function flagIfCheating(channelId, result) {
 
 function getTicketChannels() {
     return client.channels.cache
-        .filter((ch) => ch.parentId === CATEGORY_ID && myTickets.has(ch.id))
+        .filter((ch) => ch.parentId === CATEGORY_ID)
         .map((ch) => {
             const lastResult = channelLastResult.get(ch.id);
             return {
                 id: ch.id,
                 name: ch.name,
+                claimed: myTickets.has(ch.id),
                 held: heldTickets.has(ch.id),
                 scanCode: channelScans.get(ch.id) || null,
                 flagged: cheatingFlagged.has(ch.id),
@@ -291,7 +303,11 @@ function getTicketChannels() {
                 banStage: banClickedOnce.has(ch.id) ? 'second' : 'first'
             };
         })
-        .sort((a, b) => a.name.localeCompare(b.name));
+        // Bizim yazdığımız (claim edilmiş) ticketlar üstte, her grup kendi içinde alfabetik.
+        .sort((a, b) => {
+            if (a.claimed !== b.claimed) return a.claimed ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
 }
 
 function broadcastTicketList() {
@@ -377,6 +393,14 @@ ipcMain.on('request-scan-message', (event) => {
     if (mainWindow) mainWindow.webContents.send('scan-message', scanMessage);
 });
 
+ipcMain.on('set-ban-message', (event, text) => {
+    saveBanMessageToConfig(text.trim());
+});
+
+ipcMain.on('request-ban-message', (event) => {
+    if (mainWindow) mainWindow.webContents.send('ban-message', banMessage);
+});
+
 // --- AKTİF TARAMA / İPTAL SİSTEMİ ---
 const activeScans = new Map(); // kod -> { cancelled: boolean, messages: Message[] }
 
@@ -422,9 +446,69 @@ ipcMain.on('cancel-scan', (event, code) => {
     cancelScan(code);
 });
 
-const BAN_MESSAGE = '3. parti yazılım sebebiyle banlandınız, itiraz için ac masterlara yazabilirsiniz.';
 
 // --- TICKET AKSİYONLARI (Electron paneli ve mobil panel ortak kullanır) ---
+
+// Ticket'ı claim eder: otomatik karşılama sistemindekiyle aynı mesajı/sticker'ı
+// manuel olarak gönderir. Mesaj gönderilince "ESKİ SİSTEMLER" bloğu zaten kanalı
+// myTickets'a ekleyip claimed hale getiriyor.
+async function performTicketClaim(channelId) {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+    try {
+        if (welcomeMessage) {
+            await channel.send(welcomeMessage);
+        } else {
+            await channel.send({ stickers: ['749054660769218631'] });
+        }
+        console.log(`[Panel] ${channel.name}: claim edildi, karşılama mesajı gönderildi.`);
+    } catch (error) {
+        console.log(`[Hata] ${channel.name} claim edilemedi: ${error.message}`);
+    }
+}
+
+// Ticket sistemi botunun "Lütfen yapacağınız işlemi seçin" menüsünden "Ticket Sil"i
+// programatik olarak seçer - bu, ticket kanalını (çoğunlukla) siler. Onay adımı
+// (geri alınamaz olduğu için) arayüz tarafında (panel/mobil kart üzerinde) isteniyor -
+// mobil panelden çağrılınca masaüstünde açılacak bir native pencerede kilitli kalmasın diye.
+async function performTicketClose(channelId) {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+
+    const menuMessageId = channelTicketMenuMessageId.get(channelId);
+    if (!menuMessageId) {
+        console.log(`[Panel] ${channel.name}: ticket işlem menüsü yakalanmamış, kapatılamadı.`);
+        if (mainWindow) {
+            dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                title: 'Ticket Kapatılamadı',
+                message: `${channel.name} kanalında ticket işlem menüsü bulunamadı.`,
+                buttons: ['Tamam']
+            });
+        }
+        return;
+    }
+
+    try {
+        const menuMessage = await channel.messages.fetch(menuMessageId);
+        const menu = menuMessage.components.flatMap((row) => row.components).find((c) => String(c.type).includes('SELECT'));
+        if (!menu) throw new Error('Select menu bulunamadı.');
+        const option = menu.options.find((o) => /ticket sil/i.test(o.label));
+        if (!option) throw new Error('"Ticket Sil" seçeneği bulunamadı.');
+        await menuMessage.selectMenu(menu, [option.value]);
+        console.log(`[Panel] ${channel.name}: "Ticket Sil" seçildi.`);
+    } catch (error) {
+        console.log(`[Hata] ${channel.name} kapatılamadı: ${error.message}`);
+        if (mainWindow) {
+            dialog.showMessageBox(mainWindow, {
+                type: 'error',
+                title: 'Ticket Kapatılamadı',
+                message: `Ticket kapatılırken hata oluştu:\n${error.message}`,
+                buttons: ['Tamam']
+            });
+        }
+    }
+}
 
 async function performTicketKontrol(channelId) {
     const channel = client.channels.cache.get(channelId);
@@ -457,7 +541,7 @@ async function performTicketBan(channelId) {
     // sadece eski/gecikmiş bir isteğin yanlışlıkla ban mesajını tekrar atmasını engelliyor.
     if (banClickedOnce.has(channelId)) return;
 
-    await channel.send(BAN_MESSAGE);
+    await channel.send(banMessage);
     console.log(`[Panel] ${channel.name}: ban mesajı gönderildi.`);
 
     const logMsg = channelLastLogMessage.get(channelId);
@@ -498,10 +582,20 @@ async function performTicketBanConfirm(channelId, reason) {
         return;
     }
 
+    const gameId = channelGameId.get(channelId);
+
     try {
-        await channel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
-        await channel.sendSlash(FG_BOT_ID, 'fg ban', license, safeReason);
-        console.log(`[Panel] ${channel.name}: /fg ban slash komutları gönderildi (${license}).`);
+        if (gameId) {
+            // Kullanıcı şu an oyunda: önce oyun içi ID ile canlı ban, sonra tekrar
+            // bağlanmasını önlemek için license ile offline-ban.
+            await channel.sendSlash(FG_BOT_ID, 'fg ban', gameId, safeReason);
+            await channel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
+            console.log(`[Panel] ${channel.name}: /fg ban (oyun içi ID: ${gameId}) + /fg offline-ban (${license}) gönderildi.`);
+        } else {
+            // Kullanıcı oyunda değil: tek başına license ile offline-ban yeterli.
+            await channel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
+            console.log(`[Panel] ${channel.name}: /fg offline-ban gönderildi (${license}).`);
+        }
     } catch (error) {
         console.log(`[Hata] "/fg" slash komutu gönderilemedi: ${error.message}`);
         if (mainWindow) {
@@ -526,6 +620,22 @@ function performTicketHold(channelId) {
     if (mainWindow) mainWindow.webContents.send('ticket-hold-changed', { channelId, held });
     return held;
 }
+
+ipcMain.on('ticket-claim', async (event, channelId) => {
+    try {
+        await performTicketClaim(channelId);
+    } catch (error) {
+        console.log(`[Hata] Claim işlemi başarısız: ${error.message}`);
+    }
+});
+
+ipcMain.on('ticket-close', async (event, channelId) => {
+    try {
+        await performTicketClose(channelId);
+    } catch (error) {
+        console.log(`[Hata] Kapatma işlemi başarısız: ${error.message}`);
+    }
+});
 
 ipcMain.on('ticket-kontrol', async (event, channelId) => {
     try {
@@ -635,7 +745,7 @@ const mobileServer = http.createServer(async (req, res) => {
         return sendJson(res, 200, getTicketChannels());
     }
 
-    const actionMatch = reqUrl.pathname.match(/^\/api\/tickets\/(\d+)\/(kontrol|cancel|ban|hold|ban-confirm)$/);
+    const actionMatch = reqUrl.pathname.match(/^\/api\/tickets\/(\d+)\/(kontrol|cancel|ban|hold|ban-confirm|claim|close)$/);
     if (req.method === 'POST' && actionMatch) {
         if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
         const [, channelId, action] = actionMatch;
@@ -644,6 +754,8 @@ const mobileServer = http.createServer(async (req, res) => {
             else if (action === 'cancel') performTicketCancel(channelId);
             else if (action === 'ban') await performTicketBan(channelId);
             else if (action === 'hold') performTicketHold(channelId);
+            else if (action === 'claim') await performTicketClaim(channelId);
+            else if (action === 'close') await performTicketClose(channelId);
             else if (action === 'ban-confirm') {
                 let body = '';
                 for await (const chunk of req) body += chunk;
@@ -842,6 +954,8 @@ client.on('channelDelete', (channel) => {
         cheatingFlagged.delete(channel.id);
         channelLastResult.delete(channel.id);
         channelLicense.delete(channel.id);
+        channelGameId.delete(channel.id);
+        channelTicketMenuMessageId.delete(channel.id);
         banClickedOnce.delete(channel.id);
         broadcastTicketList();
     }
@@ -869,6 +983,29 @@ client.on('messageCreate', async (message) => {
         if (licenseMatch) {
             channelLicense.set(message.channel.id, licenseMatch[0]);
             console.log(`[Lisans] ${message.channel.name} için lisans yakalandı: ${licenseMatch[0]}`);
+        }
+
+        // "Oyun İçi ID" alanı: kullanıcı oyundaysa bir sayı, değilse bir tire/çizgi gösteriyor.
+        const gameIdField = message.embeds.flatMap((e) => e.fields || []).find((f) => /oyun/i.test(f.name));
+        if (gameIdField) {
+            const cleanValue = gameIdField.value.replace(/[`*_~]/g, '').trim();
+            if (/^\d+$/.test(cleanValue)) {
+                channelGameId.set(message.channel.id, cleanValue);
+                console.log(`[Oyun İçi ID] ${message.channel.name} için yakalandı: ${cleanValue} (kullanıcı oyunda)`);
+            } else {
+                channelGameId.delete(message.channel.id);
+                console.log(`[Oyun İçi ID] ${message.channel.name}: kullanıcı şu an oyunda değil.`);
+            }
+        }
+
+        // Ticket sistemi botunun "Lütfen yapacağınız işlemi seçin" select menu'sü -
+        // panelden "Kapat" butonuyla bu menüden "Ticket Sil" seçeneğini tetikleyebilmek için mesajı saklıyoruz.
+        const hasSelectMenu = message.components.some((row) =>
+            row.components.some((c) => String(c.type).includes('SELECT'))
+        );
+        if (hasSelectMenu) {
+            channelTicketMenuMessageId.set(message.channel.id, message.id);
+            console.log(`[Ticket Menü] ${message.channel.name} için işlem menüsü yakalandı.`);
         }
     }
 
