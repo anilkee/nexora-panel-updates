@@ -145,8 +145,15 @@
             background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c); font-size: 13px;
         }
         .ban-reason-row .ticket-btn { flex: 0 0 auto; padding-left: 10px; padding-right: 10px; }
+        .ticket-btn.close-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .close-confirm-row {
+            display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap;
+        }
+        .close-confirm-row .close-confirm-label { font-size: 12px; color: var(--text-lo); flex: 1 1 100%; }
+        .close-confirm-row .ticket-btn { flex: 0 0 auto; padding-left: 10px; padding-right: 10px; }
         .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+        .ticket-btn.claim-btn { color: var(--accent); border-color: var(--accent-dim); }
         .ticket-btn.sonuc-btn.sonuc-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
@@ -212,6 +219,8 @@
             <symbol id="icon-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
             <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
+            <symbol id="icon-flag" viewBox="0 0 24 24"><path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/></symbol>
+            <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></symbol>
             <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/></symbol>
             <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
@@ -381,6 +390,47 @@
             input.focus();
         }
 
+        function toggleCloseConfirmRow(card, channelId) {
+            const existing = card.querySelector('.close-confirm-row');
+            if (existing) {
+                existing.remove();
+                banReasonOpenFor = null;
+                return;
+            }
+
+            banReasonOpenFor = channelId;
+
+            const row = document.createElement('div');
+            row.className = 'close-confirm-row';
+
+            const label = document.createElement('span');
+            label.className = 'close-confirm-label';
+            label.textContent = 'Ticket silinecek, emin misin?';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'ticket-btn ban-btn';
+            confirmBtn.innerHTML = `${iconHtml('check')}<span>Evet, Kapat</span>`;
+            confirmBtn.onclick = () => {
+                banReasonOpenFor = null;
+                postAction(channelId, 'close');
+                row.remove();
+            };
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'ticket-btn';
+            cancelBtn.innerHTML = iconHtml('x');
+            cancelBtn.setAttribute('aria-label', 'Vazgeç');
+            cancelBtn.onclick = () => {
+                row.remove();
+                banReasonOpenFor = null;
+            };
+
+            row.appendChild(label);
+            row.appendChild(confirmBtn);
+            row.appendChild(cancelBtn);
+            card.appendChild(row);
+        }
+
         function renderTicketCard(ticket) {
             const card = document.createElement('div');
             card.className = 'ticket-card' + (ticket.flagged ? ' flagged' : '');
@@ -399,50 +449,64 @@
             const actions = document.createElement('div');
             actions.className = 'ticket-actions';
 
-            const kontrolBtn = document.createElement('button');
-            kontrolBtn.className = 'ticket-btn kontrol-btn';
-            if (ticket.scanCode) {
-                kontrolBtn.innerHTML = `${iconHtml('x')}<span>İptal (${ticket.scanCode})</span>`;
-                kontrolBtn.classList.add('active');
-                kontrolBtn.onclick = () => postAction(ticket.id, 'cancel');
+            if (!ticket.claimed) {
+                const claimBtn = document.createElement('button');
+                claimBtn.className = 'ticket-btn claim-btn';
+                claimBtn.innerHTML = `${iconHtml('flag')}<span>Claim</span>`;
+                claimBtn.onclick = () => postAction(ticket.id, 'claim');
+                actions.appendChild(claimBtn);
             } else {
-                kontrolBtn.innerHTML = `${iconHtml('radar')}<span>Kontrol</span>`;
-                kontrolBtn.onclick = () => postAction(ticket.id, 'kontrol');
-            }
-            actions.appendChild(kontrolBtn);
-
-            const banBtn = document.createElement('button');
-            banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
-            banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
-            banBtn.onclick = () => {
-                if (ticket.banStage === 'second') {
-                    toggleBanReasonRow(card, ticket.id);
+                const kontrolBtn = document.createElement('button');
+                kontrolBtn.className = 'ticket-btn kontrol-btn';
+                if (ticket.scanCode) {
+                    kontrolBtn.innerHTML = `${iconHtml('x')}<span>İptal (${ticket.scanCode})</span>`;
+                    kontrolBtn.classList.add('active');
+                    kontrolBtn.onclick = () => postAction(ticket.id, 'cancel');
                 } else {
-                    postAction(ticket.id, 'ban');
+                    kontrolBtn.innerHTML = `${iconHtml('radar')}<span>Kontrol</span>`;
+                    kontrolBtn.onclick = () => postAction(ticket.id, 'kontrol');
                 }
-            };
-            actions.appendChild(banBtn);
+                actions.appendChild(kontrolBtn);
 
-            const holdBtn = document.createElement('button');
-            holdBtn.className = 'ticket-btn hold-btn';
-            if (ticket.held) {
-                holdBtn.innerHTML = `${iconHtml('play')}<span>Kaldır</span>`;
-                holdBtn.classList.add('active');
-            } else {
-                holdBtn.innerHTML = `${iconHtml('pause')}<span>Beklet</span>`;
-            }
-            holdBtn.onclick = () => postAction(ticket.id, 'hold');
-            actions.appendChild(holdBtn);
+                const banBtn = document.createElement('button');
+                banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
+                banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
+                banBtn.onclick = () => {
+                    if (ticket.banStage === 'second') {
+                        toggleBanReasonRow(card, ticket.id);
+                    } else {
+                        postAction(ticket.id, 'ban');
+                    }
+                };
+                actions.appendChild(banBtn);
 
-            if (ticket.resultUrl) {
-                const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
-                const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
-                const sonucBtn = document.createElement('button');
-                sonucBtn.className = `ticket-btn sonuc-btn sonuc-${verdictClass}`;
-                sonucBtn.innerHTML = `${iconHtml('external')}<span>Sonuç</span>`;
-                sonucBtn.onclick = () => window.open(ticket.resultUrl, '_blank');
-                actions.appendChild(sonucBtn);
+                const holdBtn = document.createElement('button');
+                holdBtn.className = 'ticket-btn hold-btn';
+                if (ticket.held) {
+                    holdBtn.innerHTML = `${iconHtml('play')}<span>Kaldır</span>`;
+                    holdBtn.classList.add('active');
+                } else {
+                    holdBtn.innerHTML = `${iconHtml('pause')}<span>Beklet</span>`;
+                }
+                holdBtn.onclick = () => postAction(ticket.id, 'hold');
+                actions.appendChild(holdBtn);
+
+                if (ticket.resultUrl) {
+                    const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
+                    const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
+                    const sonucBtn = document.createElement('button');
+                    sonucBtn.className = `ticket-btn sonuc-btn sonuc-${verdictClass}`;
+                    sonucBtn.innerHTML = `${iconHtml('external')}<span>Sonuç</span>`;
+                    sonucBtn.onclick = () => window.open(ticket.resultUrl, '_blank');
+                    actions.appendChild(sonucBtn);
+                }
             }
+
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'ticket-btn close-btn';
+            closeBtn.innerHTML = `${iconHtml('trash')}<span>Kapat</span>`;
+            closeBtn.onclick = () => toggleCloseConfirmRow(card, ticket.id);
+            actions.appendChild(closeBtn);
 
             card.appendChild(actions);
             return card;
