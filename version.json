@@ -1,4 +1,4 @@
 {
-  "version": "1.4.0",
-  "changelog": "- Ban butonuna 2 asamali /fg ban akisi: 1. basis normal ban mesaji, 2. basista sebep sorup gercek /fg offline-ban + /fg ban slash komutlarini (license ile) gonderiyor\n- Ticket acilinca botun mesajindaki lisans otomatik yakalaniyor\n- Otomatik karsilamanin eski/zaten yazilmis ticketlara tekrar hos geldin mesaji atma hatasi duzeltildi\n- Gormezden gelinecek rol ID artik kod icinde sabit, kisisel ayardan kaldirildi"
+  "version": "1.5.0",
+  "changelog": "- Ayni anda birden fazla kopya acilma sorunu duzeltildi (tek ornek kilidi)\n- debug.log artik sinirsiz buyumuyor, belli boyutu gecince eskisi debug.log.old a taniniyor\n- Mobil erisim tokeni artik debug.log a acik yazilmiyor, maskeleniyor\n- Ayarlar a Log karti eklendi: debug.log u Not Defterine gerek kalmadan panelden gorebilirsin\n- Ana ekrana Durum karti eklendi: Discord/Nexora API/Mobil sunucu durumu tek bakista\n- Durum karti ana ekranin en altina alindi, eski sabit \"Sistem Arka Planda Aktif\" yazisi kaldirildi"
 }
