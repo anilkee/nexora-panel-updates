@@ -10,13 +10,29 @@ require('dotenv').config({ path: CONFIG_ENV_PATH });
 
 // Paketlenmiş .exe konsolsuz açıldığı için console.log çıktısı hiçbir yerde görünmüyordu.
 // Artık aynı satırlar debug.log dosyasına da yazılıyor - sorun olursa o dosyaya bakılabilir.
+// Dosya sınırsız büyümesin diye belli bir boyutu geçince eski içerik debug.log.old'a
+// taşınıyor - yine de bir sorun anında geriye dönük yeterli kayıt kalsın diye limit
+// küçük tutulmadı (5 MB, üstelik bir önceki dönem debug.log.old'da hâlâ duruyor).
 const DEBUG_LOG_PATH = path.join(__dirname, 'debug.log');
+const DEBUG_LOG_OLD_PATH = path.join(__dirname, 'debug.log.old');
+const DEBUG_LOG_MAX_BYTES = 5 * 1024 * 1024;
+let debugLogSize = 0;
+try {
+    debugLogSize = fs.statSync(DEBUG_LOG_PATH).size;
+} catch (error) {
+    debugLogSize = 0;
+}
 const originalConsoleLog = console.log;
 console.log = (...args) => {
     originalConsoleLog(...args);
     try {
-        const line = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
-        fs.appendFileSync(DEBUG_LOG_PATH, `[${new Date().toISOString()}] ${line}\n`);
+        const line = `[${new Date().toISOString()}] ${args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}\n`;
+        if (debugLogSize > DEBUG_LOG_MAX_BYTES) {
+            fs.renameSync(DEBUG_LOG_PATH, DEBUG_LOG_OLD_PATH);
+            debugLogSize = 0;
+        }
+        fs.appendFileSync(DEBUG_LOG_PATH, line);
+        debugLogSize += Buffer.byteLength(line, 'utf8');
     } catch (e) {}
 };
 
@@ -30,7 +46,24 @@ process.on('uncaughtException', (error) => {
     console.log(`[YAKALANMAMIŞ İSTİSNA] ${error?.stack || error}`);
 });
 
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+
+// Aynı anda birden fazla kopya açılınca ikincisi mobil sunucunun portunu (3939)
+// alamayıp çöküyordu (EADDRINUSE). Tek örnek kilidiyle ikinci açılışı tamamen
+// engelleyip, zaten açık olan pencereyi öne getiriyoruz.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+    process.exit(0);
+}
+app.on('second-instance', () => {
+    const existingWindow = mainWindow || setupWindow;
+    if (existingWindow) {
+        if (existingWindow.isMinimized()) existingWindow.restore();
+        existingWindow.focus();
+    }
+});
+
 const { Client } = require('discord.js-selfbot-v13');
 const { exec } = require('child_process');
 const http = require('http');
@@ -41,7 +74,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.4.0';
+const CURRENT_VERSION = '1.5.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -130,6 +163,23 @@ async function findTargetUserId(channel, excludeMessageId) {
 
 let mainWindow;
 const client = new Client({ checkUpdate: false });
+
+// --- SİSTEM DURUMU (panelde "Durum" kartı için) ---
+let discordStatus = 'bağlanıyor'; // 'bağlanıyor' | 'bağlı' | 'hata'
+let nexoraStatus = 'bilinmiyor';  // 'bilinmiyor' | 'sağlıklı' | 'sorunlu'
+let mobileServerReady = false;
+
+function broadcastSystemStatus() {
+    if (mainWindow) {
+        mainWindow.webContents.send('system-status', {
+            discord: discordStatus,
+            nexora: nexoraStatus,
+            mobile: mobileServerReady
+        });
+    }
+}
+
+ipcMain.on('request-system-status', () => broadcastSystemStatus());
 
 let autoReplyEnabled = process.env.AUTO_REPLY_ENABLED === 'true';
 let welcomeMessage = process.env.WELCOME_MESSAGE || '';
@@ -284,6 +334,23 @@ ipcMain.on('request-account-settings', (event) => {
             IGNORED_IDS: ignoredIdsString || ''
         });
     }
+});
+
+const DEBUG_LOG_TAIL_LINES = 300;
+
+ipcMain.on('request-debug-log', (event) => {
+    try {
+        const content = fs.readFileSync(DEBUG_LOG_PATH, 'utf8');
+        const lines = content.split('\n');
+        const tail = lines.slice(-DEBUG_LOG_TAIL_LINES).join('\n');
+        if (mainWindow) mainWindow.webContents.send('debug-log', tail);
+    } catch (error) {
+        if (mainWindow) mainWindow.webContents.send('debug-log', `Log okunamadı: ${error.message}`);
+    }
+});
+
+ipcMain.on('open-debug-log-folder', () => {
+    shell.showItemInFolder(DEBUG_LOG_PATH);
 });
 
 ipcMain.on('toggle-auto-reply', (event, status) => {
@@ -522,6 +589,17 @@ function getMobileUrl() {
     return `http://${getLocalLanIp()}:${MOBILE_PORT}/?token=${MOBILE_ACCESS_TOKEN}`;
 }
 
+// debug.log'a token'ın tamamı değil, sadece ilk birkaç karakteri + yıldızlar yazılsın.
+function maskToken(token) {
+    if (!token) return '';
+    if (token.length <= 6) return '*'.repeat(token.length);
+    return token.slice(0, 4) + '*'.repeat(token.length - 4);
+}
+
+function getMaskedMobileUrl() {
+    return `http://${getLocalLanIp()}:${MOBILE_PORT}/?token=${maskToken(MOBILE_ACCESS_TOKEN)}`;
+}
+
 function sendJson(res, status, data) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(data));
@@ -601,8 +679,10 @@ function startApp() {
 
     mobileServer.listen(MOBILE_PORT, '0.0.0.0', () => {
         const mobileUrl = getMobileUrl();
-        console.log(`[Mobil] Aynı Wi-Fi'daki telefondan erişim: ${mobileUrl}`);
+        console.log(`[Mobil] Aynı Wi-Fi'daki telefondan erişim: ${getMaskedMobileUrl()}`);
         if (mainWindow) mainWindow.webContents.send('mobile-url', mobileUrl);
+        mobileServerReady = true;
+        broadcastSystemStatus();
     });
 
     console.log('[Bağlantı] Discord\'a giriş deneniyor...');
@@ -612,6 +692,8 @@ function startApp() {
     });
     Promise.race([client.login(process.env.USER_TOKEN), loginTimeout]).catch((error) => {
         console.log(`[Hata] Discord girişi başarısız: ${error.message}`);
+        discordStatus = 'hata';
+        broadcastSystemStatus();
         dialog.showMessageBox(mainWindow, {
             type: 'error',
             title: 'Discord Girişi Başarısız',
@@ -623,6 +705,8 @@ function startApp() {
 
 client.on('error', (error) => {
     console.log(`[Hata] Discord bağlantı hatası: ${error.message}`);
+    discordStatus = 'hata';
+    broadcastSystemStatus();
 });
 
 client.on('debug', (info) => {
@@ -713,6 +797,8 @@ app.on('ready', async () => {
 client.on('ready', () => {
     console.log(`[Bağlantı] Giriş yapıldı: ${client.user.tag}`);
     console.log(`[Ayar] CATEGORY_ID=${CATEGORY_ID}, LOG_CHANNEL_ID=${LOG_CHANNEL_ID}`);
+    discordStatus = 'bağlı';
+    broadcastSystemStatus();
     refreshMyTickets();
 });
 
@@ -893,18 +979,26 @@ function showTimeoutPopup(code) {
 function reportNexoraSuccess() {
     consecutiveNetworkFailures = 0;
     healthAlertShown = false;
+    if (nexoraStatus !== 'sağlıklı') {
+        nexoraStatus = 'sağlıklı';
+        broadcastSystemStatus();
+    }
 }
 
 function reportNexoraFailure() {
     consecutiveNetworkFailures++;
-    if (consecutiveNetworkFailures >= HEALTH_FAILURE_THRESHOLD && !healthAlertShown) {
-        healthAlertShown = true;
-        dialog.showMessageBox(mainWindow, {
-            type: 'warning',
-            title: '⚠️ Nexora API Sorunu',
-            message: `Nexora API'ye art arda ${consecutiveNetworkFailures} kez ulaşılamadı.\nİnternet bağlantını veya nexorascanner.ac durumunu kontrol et.`,
-            buttons: ['Tamam']
-        });
+    if (consecutiveNetworkFailures >= HEALTH_FAILURE_THRESHOLD) {
+        nexoraStatus = 'sorunlu';
+        broadcastSystemStatus();
+        if (!healthAlertShown) {
+            healthAlertShown = true;
+            dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                title: '⚠️ Nexora API Sorunu',
+                message: `Nexora API'ye art arda ${consecutiveNetworkFailures} kez ulaşılamadı.\nİnternet bağlantını veya nexorascanner.ac durumunu kontrol et.`,
+                buttons: ['Tamam']
+            });
+        }
     }
 }
 
@@ -919,6 +1013,7 @@ async function validateNexoraApiKey() {
         if (res.ok) {
             const data = await res.json();
             console.log(`[Nexora] API key doğrulandı - Kullanıcı: ${data.username}, Plan: ${String(data.plan).toUpperCase()}, Toplam tarama: ${data.totalScans}`);
+            nexoraStatus = 'sağlıklı';
 
             if (['free', 'starter'].includes(String(data.plan).toLowerCase())) {
                 console.log('[Nexora] UYARI: Hesap planı Free/Starter görünüyor - tarama API çağrıları 403 ile reddedilecektir. Professional veya üstüne geçmen gerekiyor.');
@@ -928,12 +1023,16 @@ async function validateNexoraApiKey() {
             }
         } else if (res.status === 401 || res.status === 403) {
             console.log(`[Nexora] UYARI: API key geçersiz veya plan yetersiz (HTTP ${res.status}). config.env içindeki NEXORA_API_KEY'i ve dashboard'daki planını kontrol et.`);
+            nexoraStatus = 'sorunlu';
         } else {
             console.log(`[Nexora] API key doğrulanamadı: HTTP ${res.status}`);
+            nexoraStatus = 'sorunlu';
         }
     } catch (error) {
         console.log(`[Nexora] API key doğrulanırken hata: ${error.message}`);
+        nexoraStatus = 'sorunlu';
     }
+    broadcastSystemStatus();
 }
 
 // --- MERKEZİ TARAMA KUYRUĞU ---
