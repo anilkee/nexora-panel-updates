@@ -249,13 +249,21 @@
         .swatch-b { background: #dd9a44; }
         .swatch-c { background: linear-gradient(135deg, #8b7bf5, #6bd9c9); }
 
-        .status-pill {
-            display: flex; align-items: center; justify-content: center; gap: 7px;
-            background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
-            border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
-            padding: 9px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 700; margin-top: 4px;
+        .status-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; padding: 5px 0; }
+        .status-row span:nth-child(2) { flex: 1; color: var(--text-hi); font-weight: 600; }
+        .status-text { color: var(--text-lo); }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .status-dot.ok { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+        .status-dot.warn { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+        .status-dot.danger { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
+
+        .log-view {
+            background: var(--bg-panel-raise); border: 1px solid var(--border-c);
+            border-radius: calc(var(--radius-card) - 1px); padding: 10px; font-size: 10.5px;
+            font-family: "Cascadia Mono", Consolas, monospace; color: var(--text-lo);
+            max-height: 260px; overflow-y: auto; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+            margin: 0 0 10px;
         }
-        .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
     </style>
 </head>
 <body data-theme="a">
@@ -306,6 +314,13 @@
             <div class="idle-state" id="idleState">
                 <svg class="icon"><use href="#icon-ticket"></use></svg>
                 <p>Ticket bekleniyor...</p>
+            </div>
+
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-status"></use></svg>Durum</h2>
+                <div class="status-row"><span class="status-dot warn" id="statusDiscordDot"></span><span>Discord</span><span class="status-text" id="statusDiscordText">Bağlanıyor...</span></div>
+                <div class="status-row"><span class="status-dot warn" id="statusNexoraDot"></span><span>Nexora API</span><span class="status-text" id="statusNexoraText">Kontrol ediliyor...</span></div>
+                <div class="status-row"><span class="status-dot warn" id="statusMobileDot"></span><span>Mobil Sunucu</span><span class="status-text" id="statusMobileText">Başlatılıyor...</span></div>
             </div>
         </div>
 
@@ -413,9 +428,16 @@
                 <p class="hint">Kaydedince uygulama otomatik olarak yeniden başlar.</p>
                 <button class="primary" id="saveAccountBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Kaydet ve Yeniden Başlat</span></button>
             </div>
-        </div>
 
-        <div class="status-pill"><span class="dot"></span> Sistem Arka Planda Aktif</div>
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-log"></use></svg>Log</h2>
+                <pre class="log-view" id="debugLogView">Yükleniyor...</pre>
+                <div style="display: flex; gap: 8px;">
+                    <button class="primary" id="refreshLogBtn" style="flex: 1;"><svg class="icon"><use href="#icon-refresh"></use></svg><span class="label">Yenile</span></button>
+                    <button class="primary" id="openLogFolderBtn" style="flex: 1;"><svg class="icon"><use href="#icon-folder"></use></svg><span class="label">Klasörde Göster</span></button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <svg style="position: absolute; width: 0; height: 0" aria-hidden="true">
@@ -435,6 +457,10 @@
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play-fill" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-status" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></symbol>
+            <symbol id="icon-log" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
+            <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></symbol>
+            <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></symbol>
             <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 4.2l1.8 1.8M17.9 17.9l1.8 1.8M3 12h2.5M18.5 12H21M4.2 19.8l1.8-1.8M17.9 6.1l1.8-1.8"/></symbol>
             <symbol id="icon-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
             <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l2 2M14 9l2 2"/></symbol>
