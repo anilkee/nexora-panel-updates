@@ -181,6 +181,47 @@ function toggleBanReasonRow(card, channelId) {
     input.focus();
 }
 
+function toggleCloseConfirmRow(card, channelId) {
+    const existing = card.querySelector('.close-confirm-row');
+    if (existing) {
+        existing.remove();
+        banReasonOpenFor = null;
+        return;
+    }
+
+    banReasonOpenFor = channelId;
+
+    const row = document.createElement('div');
+    row.className = 'close-confirm-row';
+
+    const label = document.createElement('span');
+    label.className = 'close-confirm-label';
+    label.textContent = 'Ticket silinecek, emin misin?';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'ticket-btn ban-btn';
+    confirmBtn.innerHTML = `${iconHtml('check')}<span>Evet, Kapat</span>`;
+    confirmBtn.onclick = () => {
+        ipcRenderer.send('ticket-close', channelId);
+        row.remove();
+        banReasonOpenFor = null;
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ticket-btn';
+    cancelBtn.innerHTML = iconHtml('x');
+    cancelBtn.setAttribute('aria-label', 'Vazgeç');
+    cancelBtn.onclick = () => {
+        row.remove();
+        banReasonOpenFor = null;
+    };
+
+    row.appendChild(label);
+    row.appendChild(confirmBtn);
+    row.appendChild(cancelBtn);
+    card.appendChild(row);
+}
+
 function renderTicketCard(ticket) {
     const card = document.createElement('div');
     card.className = 'ticket-card' + (ticket.flagged ? ' flagged' : '');
@@ -200,37 +241,51 @@ function renderTicketCard(ticket) {
     const actions = document.createElement('div');
     actions.className = 'ticket-actions';
 
-    const kontrolBtn = document.createElement('button');
-    kontrolBtn.className = 'ticket-btn kontrol-btn';
-    setKontrolButtonState(kontrolBtn, ticket.id, ticket.scanCode);
-    actions.appendChild(kontrolBtn);
+    if (!ticket.claimed) {
+        const claimBtn = document.createElement('button');
+        claimBtn.className = 'ticket-btn claim-btn';
+        claimBtn.innerHTML = `${iconHtml('flag')}<span>Claim</span>`;
+        claimBtn.onclick = () => ipcRenderer.send('ticket-claim', ticket.id);
+        actions.appendChild(claimBtn);
+    } else {
+        const kontrolBtn = document.createElement('button');
+        kontrolBtn.className = 'ticket-btn kontrol-btn';
+        setKontrolButtonState(kontrolBtn, ticket.id, ticket.scanCode);
+        actions.appendChild(kontrolBtn);
 
-    const banBtn = document.createElement('button');
-    banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
-    banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
-    banBtn.onclick = () => {
-        if (ticket.banStage === 'second') {
-            toggleBanReasonRow(card, ticket.id);
-        } else {
-            ipcRenderer.send('ticket-ban', ticket.id);
+        const banBtn = document.createElement('button');
+        banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
+        banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
+        banBtn.onclick = () => {
+            if (ticket.banStage === 'second') {
+                toggleBanReasonRow(card, ticket.id);
+            } else {
+                ipcRenderer.send('ticket-ban', ticket.id);
+            }
+        };
+        actions.appendChild(banBtn);
+
+        const holdBtn = document.createElement('button');
+        holdBtn.className = 'ticket-btn hold-btn';
+        setHoldButtonState(holdBtn, ticket.id, ticket.held);
+        actions.appendChild(holdBtn);
+
+        if (ticket.resultUrl) {
+            const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
+            const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
+            const sonucBtn = document.createElement('button');
+            sonucBtn.className = `ticket-btn sonuc-btn sonuc-${verdictClass}`;
+            sonucBtn.innerHTML = `${iconHtml('external')}<span>Sonuç</span>`;
+            sonucBtn.onclick = () => shell.openExternal(ticket.resultUrl);
+            actions.appendChild(sonucBtn);
         }
-    };
-    actions.appendChild(banBtn);
-
-    const holdBtn = document.createElement('button');
-    holdBtn.className = 'ticket-btn hold-btn';
-    setHoldButtonState(holdBtn, ticket.id, ticket.held);
-    actions.appendChild(holdBtn);
-
-    if (ticket.resultUrl) {
-        const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
-        const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
-        const sonucBtn = document.createElement('button');
-        sonucBtn.className = `ticket-btn sonuc-btn sonuc-${verdictClass}`;
-        sonucBtn.innerHTML = `${iconHtml('external')}<span>Sonuç</span>`;
-        sonucBtn.onclick = () => shell.openExternal(ticket.resultUrl);
-        actions.appendChild(sonucBtn);
     }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ticket-btn close-btn';
+    closeBtn.innerHTML = `${iconHtml('trash')}<span>Kapat</span>`;
+    closeBtn.onclick = () => toggleCloseConfirmRow(card, ticket.id);
+    actions.appendChild(closeBtn);
 
     card.appendChild(actions);
     return card;
@@ -317,6 +372,22 @@ saveScanMessageBtn.addEventListener('click', () => {
 });
 
 ipcRenderer.send('request-scan-message');
+
+// --- BAN MESAJI ---
+const banMessageInput = document.getElementById('banMessageInput');
+const saveBanMessageBtn = document.getElementById('saveBanMessageBtn');
+
+ipcRenderer.on('ban-message', (event, text) => {
+    banMessageInput.value = text || '';
+});
+
+saveBanMessageBtn.addEventListener('click', () => {
+    ipcRenderer.send('set-ban-message', banMessageInput.value);
+    setButtonLabel(saveBanMessageBtn, 'Kaydedildi!');
+    setTimeout(() => setButtonLabel(saveBanMessageBtn, 'Mesajı Kaydet'), 1500);
+});
+
+ipcRenderer.send('request-ban-message');
 
 // --- OTOMATİK KARŞILAMA AÇMA/KAPAMA ---
 const autoReplyToggle = document.getElementById('autoReplyToggle');
