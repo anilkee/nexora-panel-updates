@@ -171,8 +171,15 @@
             background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c); font-size: 11px;
         }
         .ban-reason-row .ticket-btn { flex: 0 0 auto; padding-left: 8px; padding-right: 8px; }
+        .ticket-btn.close-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+        .close-confirm-row {
+            display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+        }
+        .close-confirm-row .close-confirm-label { font-size: 10.5px; color: var(--text-lo); flex: 1 1 100%; }
+        .close-confirm-row .ticket-btn { flex: 0 0 auto; padding-left: 8px; padding-right: 8px; }
         .ticket-btn.hold-btn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.hold-btn.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+        .ticket-btn.claim-btn { color: var(--accent); border-color: var(--accent-dim); }
         .ticket-btn.sonuc-btn.sonuc-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
@@ -390,6 +397,15 @@
             </div>
 
             <div class="card">
+                <h2><svg class="icon"><use href="#icon-ban"></use></svg>Ban Mesajı</h2>
+                <div class="field">
+                    <label>Ban tuşuna (1. basış) basıldığında ticket'a atılacak mesaj</label>
+                    <textarea id="banMessageInput" rows="2" placeholder="3. parti yazılım sebebiyle banlandınız, itiraz için ac masterlara yazabilirsiniz."></textarea>
+                </div>
+                <button class="primary" id="saveBanMessageBtn"><svg class="icon"><use href="#icon-check"></use></svg><span class="label">Mesajı Kaydet</span></button>
+            </div>
+
+            <div class="card">
                 <h2><svg class="icon"><use href="#icon-phone"></use></svg>Mobil Erişim</h2>
                 <div class="field">
                     <label>Aynı Wi-Fi'daki telefondan aç</label>
@@ -452,6 +468,8 @@
             <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><rect x="9" y="9" width="12" height="12" rx="2"/></symbol>
             <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
             <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
+            <symbol id="icon-flag" viewBox="0 0 24 24"><path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/></symbol>
+            <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></symbol>
             <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/></symbol>
             <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
