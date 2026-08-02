@@ -46,7 +46,7 @@ process.on('uncaughtException', (error) => {
     console.log(`[YAKALANMAMIŞ İSTİSNA] ${error?.stack || error}`);
 });
 
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, Notification } = require('electron');
 
 // Aynı anda birden fazla kopya açılınca ikincisi mobil sunucunun portunu (3939)
 // alamayıp çöküyordu (EADDRINUSE). Tek örnek kilidiyle ikinci açılışı tamamen
@@ -56,6 +56,11 @@ if (!gotSingleInstanceLock) {
     app.quit();
     process.exit(0);
 }
+
+// Windows'ta native Notification'ların (şüpheli aktivite bildirimi) düzgün
+// görünmesi için uygulamanın bir AppUserModelID'si olması gerekiyor - electron-packager
+// çıktısı bir kurulum/kısayol oluşturmadığından bu olmadan bildirim sessizce kaybolabilir.
+app.setAppUserModelId('com.nexora.panel');
 app.on('second-instance', () => {
     const existingWindow = mainWindow || setupWindow;
     if (existingWindow) {
@@ -64,7 +69,7 @@ app.on('second-instance', () => {
     }
 });
 
-const { Client } = require('discord.js-selfbot-v13');
+const { Client, MessageSelectMenu } = require('discord.js-selfbot-v13');
 const { exec } = require('child_process');
 const http = require('http');
 const os = require('os');
@@ -74,7 +79,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.6.0';
+const CURRENT_VERSION = '1.7.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -190,6 +195,12 @@ let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
 const DEFAULT_BAN_MESSAGE = '3. parti yazılım sebebiyle banlandınız, itiraz için ac masterlara yazabilirsiniz.';
 let banMessage = process.env.BAN_MESSAGE || DEFAULT_BAN_MESSAGE;
 
+// "Şüpheli" (silent aim vb.) bildirimlerinin düştüğü webhook kanalı. Varsayılan
+// AÇIK - kapatılırsa config.env'e "false" olarak yazılır (bkz. saveSuspiciousNotifyToConfig).
+let suspiciousNotifyEnabled = process.env.SUSPICIOUS_NOTIFY_ENABLED !== 'false';
+// Panel kapalıyken kaçırılan raporları yakalayabilmek için son görülen mesaj ID'si kalıcı tutulur.
+let lastSeenSuspiciousId = process.env.LAST_SEEN_SUSPICIOUS_ID || null;
+
 // config.env satırı üretir - değer içinde satır sonu/tırnak olsa da güvenle saklanır.
 function formatConfigLine(key, value) {
     const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
@@ -265,6 +276,12 @@ function saveBanMessageToConfig(text) {
     saveConfigValue('BAN_MESSAGE', text);
     console.log('[Ban Mesajı] Mesaj kaydedildi.');
 }
+
+function saveSuspiciousNotifyToConfig(status) {
+    suspiciousNotifyEnabled = status;
+    saveConfigValue('SUSPICIOUS_NOTIFY_ENABLED', status ? 'true' : 'false');
+    console.log(`[Şüpheli Bildirim] Durum kaydedildi: ${status ? "AÇIK" : "KAPALI"}`);
+}
 const activeTickets = new Set();
 const heldTickets = new Set();       // beklemeye alınmış ticket kanal ID'leri
 const channelScans = new Map();      // kanal ID -> o kanalda süren "kontrol" tarama kodu
@@ -275,7 +292,6 @@ const cheatingFlagged = new Set();    // "cheating" sonucu çıkan ticket kanal 
 const channelLastResult = new Map();   // kanal ID -> { verdict, url } (panelde "Sonuç" butonu için, sadece bu oturumda tamamlanan taramalar)
 const channelLicense = new Map();      // kanal ID -> ticket açılışında botun mesajından yakalanan "license:..." değeri
 const channelGameId = new Map();       // kanal ID -> "Oyun İçi ID" alanındaki sayı (kullanıcı oyundaysa), yoksa yok
-const channelTicketMenuMessageId = new Map(); // kanal ID -> "Lütfen yapacağınız işlemi seçin" select menu'sünü barındıran mesajın ID'si
 const banClickedOnce = new Set();      // ban butonuna en az bir kez basılmış ticket kanal ID'leri (2. basış /fg komutlarını sorar)
 
 function flagIfCheating(channelId, result) {
@@ -401,6 +417,14 @@ ipcMain.on('request-ban-message', (event) => {
     if (mainWindow) mainWindow.webContents.send('ban-message', banMessage);
 });
 
+ipcMain.on('toggle-suspicious-notify', (event, status) => {
+    saveSuspiciousNotifyToConfig(status);
+});
+
+ipcMain.on('request-suspicious-notify-status', (event) => {
+    if (mainWindow) mainWindow.webContents.send('suspicious-notify-status', suspiciousNotifyEnabled);
+});
+
 // --- AKTİF TARAMA / İPTAL SİSTEMİ ---
 const activeScans = new Map(); // kod -> { cancelled: boolean, messages: Message[] }
 
@@ -471,31 +495,50 @@ async function performTicketClaim(channelId) {
 // programatik olarak seçer - bu, ticket kanalını (çoğunlukla) siler. Onay adımı
 // (geri alınamaz olduğu için) arayüz tarafında (panel/mobil kart üzerinde) isteniyor -
 // mobil panelden çağrılınca masaüstünde açılacak bir native pencerede kilitli kalmasın diye.
+// Ticket sistemi botunun (işlem menüsünü gönderen) kullanıcı ID'si.
+const TICKET_SYSTEM_BOT_ID = '1472695273418522657';
+
+// Bu bot, menüsünü Discord'un yeni "Components V2" konteynerinin (tip 17) içine
+// gömüyor. discord.js-selfbot-v13 2.15.1 bu tipi tanımıyor ve message.components
+// üzerinde onu sessizce undefined bırakıyor (bkz. BaseMessageComponent.create).
+// Bu yüzden select menu'yü kütüphanenin ayrıştırdığı message.components yerine
+// ham API JSON'ından (client.api ile) recursive arayıp elle çekiyoruz.
+const SELECT_COMPONENT_TYPES = [3, 5, 6, 7, 8]; // STRING/USER/ROLE/MENTIONABLE/CHANNEL select
+
+function findSelectComponent(components) {
+    if (!Array.isArray(components)) return null;
+    for (const c of components) {
+        if (!c || typeof c !== 'object') continue;
+        if (SELECT_COMPONENT_TYPES.includes(c.type)) return c;
+        const nested = findSelectComponent(c.components);
+        if (nested) return nested;
+    }
+    return null;
+}
+
 async function performTicketClose(channelId) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
 
-    const menuMessageId = channelTicketMenuMessageId.get(channelId);
-    if (!menuMessageId) {
-        console.log(`[Panel] ${channel.name}: ticket işlem menüsü yakalanmamış, kapatılamadı.`);
-        if (mainWindow) {
-            dialog.showMessageBox(mainWindow, {
-                type: 'warning',
-                title: 'Ticket Kapatılamadı',
-                message: `${channel.name} kanalında ticket işlem menüsü bulunamadı.`,
-                buttons: ['Tamam']
-            });
-        }
-        return;
-    }
-
     try {
-        const menuMessage = await channel.messages.fetch(menuMessageId);
-        const menu = menuMessage.components.flatMap((row) => row.components).find((c) => String(c.type).includes('SELECT'));
-        if (!menu) throw new Error('Select menu bulunamadı.');
-        const option = menu.options.find((o) => /ticket sil/i.test(o.label));
+        // İşlem menüsü mesajı ticket sistemi botu tarafından kanal açılır açılmaz
+        // gönderiliyor, yani hemen hemen her zaman kanalın en eski mesajları arasında.
+        // Panelin o an açık olup olmadığından bağımsız çalışsın diye kanalın en eski
+        // mesajlarını ham JSON olarak tarayıp o botun select menu'lü mesajını buluyoruz.
+        const rawMessages = await client.api.channels(channelId).messages.get({ query: { after: '0', limit: 20 } });
+        const rawMenuMessage = rawMessages.find(
+            (m) => m.author?.id === TICKET_SYSTEM_BOT_ID && findSelectComponent(m.components)
+        );
+        if (!rawMenuMessage) throw new Error('Ticket işlem menüsü bu kanalda bulunamadı.');
+
+        const rawMenu = findSelectComponent(rawMenuMessage.components);
+        if (!rawMenu) throw new Error('Select menu bulunamadı.');
+        const option = (rawMenu.options || []).find((o) => /ticket sil/i.test(o.label));
         if (!option) throw new Error('"Ticket Sil" seçeneği bulunamadı.');
-        await menuMessage.selectMenu(menu, [option.value]);
+
+        const menuMessage = await channel.messages.fetch(rawMenuMessage.id);
+        const menu = new MessageSelectMenu(rawMenu);
+        await menu.select(menuMessage, [option.value]);
         console.log(`[Panel] ${channel.name}: "Ticket Sil" seçildi.`);
     } catch (error) {
         console.log(`[Hata] ${channel.name} kapatılamadı: ${error.message}`);
@@ -532,7 +575,7 @@ function performTicketCancel(channelId) {
     if (code) cancelScan(code);
 }
 
-async function performTicketBan(channelId) {
+async function performTicketBan(channelId, reason) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
 
@@ -541,12 +584,17 @@ async function performTicketBan(channelId) {
     // sadece eski/gecikmiş bir isteğin yanlışlıkla ban mesajını tekrar atmasını engelliyor.
     if (banClickedOnce.has(channelId)) return;
 
-    await channel.send(banMessage);
-    console.log(`[Panel] ${channel.name}: ban mesajı gönderildi.`);
+    const safeReason = String(reason || '').trim();
+    if (!safeReason) {
+        console.log(`[Panel] ${channel.name}: sebep boş, ban mesajı gönderilmedi.`);
+        return;
+    }
+
+    console.log(`[Panel] ${channel.name}: ban sebebi kaydedildi (sebep: ${safeReason}), ticket kanalına mesaj atılmadı.`);
 
     const logMsg = channelLastLogMessage.get(channelId);
     if (logMsg) {
-        await logMsg.edit(`${logMsg.content}\n\n🚫 **BAN**`);
+        await logMsg.edit(`${logMsg.content}\n\n🚫 **BAN**\n📝 Sebep: ${safeReason}`);
         channelLastLogMessage.delete(channelId);
         console.log(`[Panel] ${channel.name}: log mesajına BAN notu düşüldü.`);
     }
@@ -595,6 +643,14 @@ async function performTicketBanConfirm(channelId, reason) {
             // Kullanıcı oyunda değil: tek başına license ile offline-ban yeterli.
             await channel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
             console.log(`[Panel] ${channel.name}: /fg offline-ban gönderildi (${license}).`);
+        }
+
+        // Ban gerekçesini kayıt altına almak için log kanalına da düşürüyoruz.
+        const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+        if (logChannel) {
+            const gameIdLine = gameId ? `\n🎮 Oyun İçi ID: ${gameId}` : '';
+            await logChannel.send(`🚫 **BAN** — ${channel.name}\n📝 Sebep: ${safeReason}\n🔑 Lisans: ${license}${gameIdLine}`);
+            console.log(`[Panel] ${channel.name}: ban sebebi log kanalına düşürüldü.`);
         }
     } catch (error) {
         console.log(`[Hata] "/fg" slash komutu gönderilemedi: ${error.message}`);
@@ -649,9 +705,9 @@ ipcMain.on('ticket-cancel', (event, channelId) => {
     performTicketCancel(channelId);
 });
 
-ipcMain.on('ticket-ban', async (event, channelId) => {
+ipcMain.on('ticket-ban', async (event, { channelId, reason }) => {
     try {
-        await performTicketBan(channelId);
+        await performTicketBan(channelId, reason);
     } catch (error) {
         console.log(`[Hata] Ban mesajı gönderilemedi: ${error.message}`);
     }
@@ -752,16 +808,16 @@ const mobileServer = http.createServer(async (req, res) => {
         try {
             if (action === 'kontrol') await performTicketKontrol(channelId);
             else if (action === 'cancel') performTicketCancel(channelId);
-            else if (action === 'ban') await performTicketBan(channelId);
             else if (action === 'hold') performTicketHold(channelId);
             else if (action === 'claim') await performTicketClaim(channelId);
             else if (action === 'close') await performTicketClose(channelId);
-            else if (action === 'ban-confirm') {
+            else if (action === 'ban' || action === 'ban-confirm') {
                 let body = '';
                 for await (const chunk of req) body += chunk;
                 let reason = '';
                 try { reason = JSON.parse(body || '{}').reason || ''; } catch (e) {}
-                await performTicketBanConfirm(channelId, reason);
+                if (action === 'ban') await performTicketBan(channelId, reason);
+                else await performTicketBanConfirm(channelId, reason);
             }
             return sendJson(res, 200, { ok: true });
         } catch (error) {
@@ -906,11 +962,104 @@ app.on('ready', async () => {
     }
 });
 
+// "webhook-system" kanalı - AC botunun (FeloxAC) silent aim vb. şüpheli tespit
+// raporlarını attığı kanal. Yeni mesaj geldiğinde Windows bildirimi gönderiyoruz.
+const SUSPICIOUS_CHANNEL_ID = '1522577961558085742';
+
+// Aynı kişinin (license/steam/discord/name önceliğiyle) son 50 raporun içinde kaç kez
+// düştüğünü hesaplamak için tutulan kayan pencere - her yeni raporda API'ye tekrar
+// istek atmadan (optimizasyon) sadece bu diziye ekleyip en eskisini düşürüyoruz.
+const recentSuspiciousReports = [];
+
+function findEmbedField(embed, pattern) {
+    const field = embed?.fields?.find((f) => pattern.test(String(f.name || '').trim()));
+    return field ? String(field.value || '').replace(/[`*_~]/g, '').trim() : null;
+}
+
+function extractSuspiciousIdentifier(embed) {
+    return (
+        findEmbedField(embed, /license/i) ||
+        findEmbedField(embed, /steam/i) ||
+        findEmbedField(embed, /discord/i) ||
+        findEmbedField(embed, /^name$/i)
+    );
+}
+
+// Bu kişinin daha önce kaç kez düştüğünü (son 50 rapor içinde) kayan pencereye
+// ekleyip hesaplar. Her mesaj (canlı ya da açılışta yakalanan) için tam olarak
+// bir kez çağrılmalı, aksi halde sayaç şişer.
+function recordSuspiciousReport(message) {
+    const embed = message.embeds?.[0];
+    const identifier = extractSuspiciousIdentifier(embed) || message.author?.id || message.id;
+    const displayName = findEmbedField(embed, /^name$/i) || message.author?.username || 'Bilinmeyen';
+
+    recentSuspiciousReports.push(identifier);
+    if (recentSuspiciousReports.length > 50) recentSuspiciousReports.shift();
+
+    const occurrences = recentSuspiciousReports.filter((id) => id === identifier).length;
+    return { embed, displayName, occurrences };
+}
+
+function showSuspiciousNotification({ embed, displayName, occurrences }) {
+    if (!suspiciousNotifyEnabled || !Notification.isSupported()) return;
+
+    const baseTitle = embed?.title || 'Şüpheli Aktivite';
+    const repeated = occurrences >= 2;
+    const notification = new Notification({
+        title: repeated ? `🚨 ${occurrences}. KEZ DÜŞTÜ — ${baseTitle}` : `⚠️ ${baseTitle}`,
+        body: repeated
+            ? `${displayName} son 50 raporda ${occurrences}. kez tespit edildi!`
+            : `${displayName} için yeni bir hile bildirimi geldi.`,
+    });
+    notification.on('click', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+    notification.show();
+}
+
+// Panel/bot kapalıyken kaçırılan raporları yakalamak için açılışta bir kez son 50
+// mesajı çekiyoruz (tek seferlik istek, tekrarlı polling yok - optimizasyon).
+// İlk kurulumda (kalıcı bir "son görülen" yoksa) geçmiş için bildirim göndermiyoruz,
+// sadece pencereyi kurup bir sonraki gerçek mesajdan itibaren takip başlıyor.
+async function catchUpSuspiciousChannel() {
+    const channel = client.channels.cache.get(SUSPICIOUS_CHANNEL_ID);
+    if (!channel) {
+        console.log(`[Şüpheli Bildirim] Kanal bulunamadı (${SUSPICIOUS_CHANNEL_ID}), takip başlatılamadı.`);
+        return;
+    }
+    try {
+        const recent = await channel.messages.fetch({ limit: 50 });
+        if (recent.size === 0) return;
+
+        const sorted = [...recent.values()].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+        const hadPriorState = Boolean(lastSeenSuspiciousId);
+
+        for (const m of sorted) {
+            const isMissed = hadPriorState && BigInt(m.id) > BigInt(lastSeenSuspiciousId);
+            const report = recordSuspiciousReport(m);
+            if (isMissed) {
+                console.log(`[Şüpheli Bildirim] Kapalıyken kaçırılan rapor: ${report.displayName} (${report.occurrences}. kez)`);
+                showSuspiciousNotification(report);
+            }
+        }
+
+        lastSeenSuspiciousId = sorted[sorted.length - 1].id;
+        saveConfigValue('LAST_SEEN_SUSPICIOUS_ID', lastSeenSuspiciousId);
+        console.log(`[Şüpheli Bildirim] Son ${sorted.length} mesaj tarandı, takip aktif.`);
+    } catch (error) {
+        console.log(`[Şüpheli Bildirim] Son 50 mesaj çekilemedi: ${error.message}`);
+    }
+}
+
 client.on('ready', () => {
     console.log(`[Bağlantı] Giriş yapıldı: ${client.user.tag}`);
     console.log(`[Ayar] CATEGORY_ID=${CATEGORY_ID}, LOG_CHANNEL_ID=${LOG_CHANNEL_ID}`);
     discordStatus = 'bağlı';
     broadcastSystemStatus();
+    catchUpSuspiciousChannel();
     refreshMyTickets();
 });
 
@@ -955,7 +1104,6 @@ client.on('channelDelete', (channel) => {
         channelLastResult.delete(channel.id);
         channelLicense.delete(channel.id);
         channelGameId.delete(channel.id);
-        channelTicketMenuMessageId.delete(channel.id);
         banClickedOnce.delete(channel.id);
         broadcastTicketList();
     }
@@ -964,9 +1112,26 @@ client.on('channelDelete', (channel) => {
 client.on('messageCreate', async (message) => {
 
     // --- BEKLETİLEN TICKET BİLDİRİMİ ---
+    // Müşteri beklemedeyken mesaj attığında sesi TEK SEFER çalıp ticket'ı otomatik
+    // beklemeden çıkarıyoruz. heldTickets'tan hemen silindiği için müşterinin
+    // ardından yazacağı diğer mesajlar bu bloğu bir daha tetiklemiyor (tekrar tekrar
+    // ses çalması buradan engellenmiş oluyor).
     if (heldTickets.has(message.channel.id) && !message.author.bot && message.author.id !== client.user.id) {
-        console.log(`[Beklet] ${message.channel.name} kanalında yeni mesaj var.`);
-        if (mainWindow) mainWindow.webContents.send('ticket-geldi');
+        console.log(`[Beklet] ${message.channel.name} kanalında yeni mesaj var, beklemeden çıkarılıyor.`);
+        heldTickets.delete(message.channel.id);
+        if (mainWindow) {
+            mainWindow.webContents.send('ticket-geldi');
+            mainWindow.webContents.send('ticket-hold-changed', { channelId: message.channel.id, held: false });
+        }
+        broadcastTicketList();
+    }
+
+    // --- ŞÜPHELİ AKTİVİTE (webhook-system) BİLDİRİMİ ---
+    if (message.channel.id === SUSPICIOUS_CHANNEL_ID && message.author.id !== client.user.id) {
+        const report = recordSuspiciousReport(message);
+        showSuspiciousNotification(report);
+        lastSeenSuspiciousId = message.id;
+        saveConfigValue('LAST_SEEN_SUSPICIOUS_ID', message.id);
     }
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
@@ -996,16 +1161,6 @@ client.on('messageCreate', async (message) => {
                 channelGameId.delete(message.channel.id);
                 console.log(`[Oyun İçi ID] ${message.channel.name}: kullanıcı şu an oyunda değil.`);
             }
-        }
-
-        // Ticket sistemi botunun "Lütfen yapacağınız işlemi seçin" select menu'sü -
-        // panelden "Kapat" butonuyla bu menüden "Ticket Sil" seçeneğini tetikleyebilmek için mesajı saklıyoruz.
-        const hasSelectMenu = message.components.some((row) =>
-            row.components.some((c) => String(c.type).includes('SELECT'))
-        );
-        if (hasSelectMenu) {
-            channelTicketMenuMessageId.set(message.channel.id, message.id);
-            console.log(`[Ticket Menü] ${message.channel.name} için işlem menüsü yakalandı.`);
         }
     }
 
