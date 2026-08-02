@@ -325,9 +325,9 @@
             loadTickets();
         }
 
-        async function postBanConfirm(channelId, reason) {
+        async function postBanReason(channelId, reason, action) {
             try {
-                await fetch(apiUrl(`/api/tickets/${channelId}/ban-confirm`), {
+                await fetch(apiUrl(`/api/tickets/${channelId}/${action}`), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ reason })
@@ -339,7 +339,7 @@
 
         let banReasonOpenFor = null; // sebep girilirken listenin yenilenip alanı silmesini önler
 
-        function toggleBanReasonRow(card, channelId) {
+        function toggleBanReasonRow(card, channelId, stage) {
             const existing = card.querySelector('.ban-reason-row');
             if (existing) {
                 existing.remove();
@@ -365,7 +365,7 @@
                     input.focus();
                     return;
                 }
-                postBanConfirm(channelId, input.value.trim());
+                postBanReason(channelId, input.value.trim(), stage === 'second' ? 'ban-confirm' : 'ban');
                 row.remove();
             };
             sendBtn.onclick = submit;
@@ -471,13 +471,7 @@
                 const banBtn = document.createElement('button');
                 banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
                 banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
-                banBtn.onclick = () => {
-                    if (ticket.banStage === 'second') {
-                        toggleBanReasonRow(card, ticket.id);
-                    } else {
-                        postAction(ticket.id, 'ban');
-                    }
-                };
+                banBtn.onclick = () => toggleBanReasonRow(card, ticket.id, ticket.banStage);
                 actions.appendChild(banBtn);
 
                 const holdBtn = document.createElement('button');
