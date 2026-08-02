@@ -129,7 +129,7 @@ function setHoldButtonState(btn, channelId, held) {
 
 let banReasonOpenFor = null; // sebep girilirken ticket listesinin yenilenip alanı silmesini önler
 
-function toggleBanReasonRow(card, channelId) {
+function toggleBanReasonRow(card, channelId, stage) {
     const existing = card.querySelector('.ban-reason-row');
     if (existing) {
         existing.remove();
@@ -155,7 +155,8 @@ function toggleBanReasonRow(card, channelId) {
             input.focus();
             return;
         }
-        ipcRenderer.send('ticket-ban-confirm', { channelId, reason: input.value.trim() });
+        const channel = stage === 'second' ? 'ticket-ban-confirm' : 'ticket-ban';
+        ipcRenderer.send(channel, { channelId, reason: input.value.trim() });
         row.remove();
         banReasonOpenFor = null;
     };
@@ -256,13 +257,7 @@ function renderTicketCard(ticket) {
         const banBtn = document.createElement('button');
         banBtn.className = 'ticket-btn ban-btn' + (ticket.banStage === 'second' ? ' active' : '');
         banBtn.innerHTML = `${iconHtml('ban')}<span>Ban</span>`;
-        banBtn.onclick = () => {
-            if (ticket.banStage === 'second') {
-                toggleBanReasonRow(card, ticket.id);
-            } else {
-                ipcRenderer.send('ticket-ban', ticket.id);
-            }
-        };
+        banBtn.onclick = () => toggleBanReasonRow(card, ticket.id, ticket.banStage);
         actions.appendChild(banBtn);
 
         const holdBtn = document.createElement('button');
@@ -401,6 +396,19 @@ autoReplyToggle.addEventListener('change', (e) => {
 });
 
 ipcRenderer.send('request-auto-reply-status');
+
+// --- ŞÜPHELİ AKTİVİTE BİLDİRİMİ AÇMA/KAPAMA ---
+const suspiciousNotifyToggle = document.getElementById('suspiciousNotifyToggle');
+
+ipcRenderer.on('suspicious-notify-status', (event, status) => {
+    suspiciousNotifyToggle.checked = status;
+});
+
+suspiciousNotifyToggle.addEventListener('change', (e) => {
+    ipcRenderer.send('toggle-suspicious-notify', e.target.checked);
+});
+
+ipcRenderer.send('request-suspicious-notify-status');
 
 ipcRenderer.send('request-mobile-url');
 
