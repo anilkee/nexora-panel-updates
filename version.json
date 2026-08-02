@@ -1,4 +1,4 @@
 {
-  "version": "1.6.0",
-  "changelog": "- Ban mesaji artik Ayarlar dan degistirilebiliyor\n- /fg ban komutu artik kullanici oyundaysa oyun ici ID ile, degilse license ile atiliyor (ikisi de gerekiyorsa ikisi de gonderiliyor)\n- Panelde artik TUM ticketlar gorunuyor: yazmadigimiz ticketlarda Claim butonu var, basinca karsilama mesaji gider ve Kontrol/Ban/Beklet gelir\n- Claim edilmis ticketlar listede uste siraliyor\n- Her ticket a Kapat butonu eklendi: onay sonrasi ticket sistemi menusunden Ticket Sil secilip kapatiliyor"
+  "version": "1.7.0",
+  "changelog": "- Ban 1. basışta artık ticket kanalına mesaj gitmiyor, sadece log güncelleniyor\n- Ban 1. basışa gerekçe sorma özelliği\n- Ticket kapatma (Kapat) özelliği eklendi + Discord'un yeni mesaj formatı yüzünden çıkan hata düzeltildi\n- Beklet: mesaj geldiğinde ses artık tek sefer çalıyor, ticket otomatik beklemeden çıkıyor\n- Şüpheli aktivite (webhook-system) için Windows bildirimi eklendi, aynı kişi tekrar tespit edilirse özel uyarı veriyor, Ayarlar'dan aç/kapa"
 }
