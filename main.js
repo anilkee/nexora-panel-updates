@@ -79,7 +79,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.7.0';
+const CURRENT_VERSION = '1.8.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -195,11 +195,18 @@ let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
 const DEFAULT_BAN_MESSAGE = '3. parti yazılım sebebiyle banlandınız, itiraz için ac masterlara yazabilirsiniz.';
 let banMessage = process.env.BAN_MESSAGE || DEFAULT_BAN_MESSAGE;
 
+// Kimlik Sorgula sonucundaki "AC Çağır" butonu için: /dm-player komutuyla oyuncuya
+// giden mesaj.
+const DEFAULT_AC_MESSAGE = 'AC ekibi sizi kontrol için sunucuya çağırıyor, lütfen Discord\'a bağlanın.';
+let acMessage = process.env.AC_MESSAGE || DEFAULT_AC_MESSAGE;
+
+// Aynı buton, kişiyi AC duyuru kanalında etiketlerken atacağı mesaj.
+const DEFAULT_AC_TICKET_MESSAGE = 'ac ticket';
+let acTicketMessage = process.env.AC_TICKET_MESSAGE || DEFAULT_AC_TICKET_MESSAGE;
+
 // "Şüpheli" (silent aim vb.) bildirimlerinin düştüğü webhook kanalı. Varsayılan
 // AÇIK - kapatılırsa config.env'e "false" olarak yazılır (bkz. saveSuspiciousNotifyToConfig).
 let suspiciousNotifyEnabled = process.env.SUSPICIOUS_NOTIFY_ENABLED !== 'false';
-// Panel kapalıyken kaçırılan raporları yakalayabilmek için son görülen mesaj ID'si kalıcı tutulur.
-let lastSeenSuspiciousId = process.env.LAST_SEEN_SUSPICIOUS_ID || null;
 
 // config.env satırı üretir - değer içinde satır sonu/tırnak olsa da güvenle saklanır.
 function formatConfigLine(key, value) {
@@ -281,6 +288,18 @@ function saveSuspiciousNotifyToConfig(status) {
     suspiciousNotifyEnabled = status;
     saveConfigValue('SUSPICIOUS_NOTIFY_ENABLED', status ? 'true' : 'false');
     console.log(`[Şüpheli Bildirim] Durum kaydedildi: ${status ? "AÇIK" : "KAPALI"}`);
+}
+
+function saveAcMessageToConfig(text) {
+    acMessage = text || DEFAULT_AC_MESSAGE;
+    saveConfigValue('AC_MESSAGE', text);
+    console.log('[AC Mesajı] Mesaj kaydedildi.');
+}
+
+function saveAcTicketMessageToConfig(text) {
+    acTicketMessage = text || DEFAULT_AC_TICKET_MESSAGE;
+    saveConfigValue('AC_TICKET_MESSAGE', text);
+    console.log('[AC Ticket Mesajı] Mesaj kaydedildi.');
 }
 const activeTickets = new Set();
 const heldTickets = new Set();       // beklemeye alınmış ticket kanal ID'leri
@@ -417,12 +436,38 @@ ipcMain.on('request-ban-message', (event) => {
     if (mainWindow) mainWindow.webContents.send('ban-message', banMessage);
 });
 
+ipcMain.on('set-ac-message', (event, text) => {
+    saveAcMessageToConfig(text.trim());
+});
+
+ipcMain.on('request-ac-message', (event) => {
+    if (mainWindow) mainWindow.webContents.send('ac-message', acMessage);
+});
+
+ipcMain.on('set-ac-ticket-message', (event, text) => {
+    saveAcTicketMessageToConfig(text.trim());
+});
+
+ipcMain.on('request-ac-ticket-message', (event) => {
+    if (mainWindow) mainWindow.webContents.send('ac-ticket-message', acTicketMessage);
+});
+
 ipcMain.on('toggle-suspicious-notify', (event, status) => {
     saveSuspiciousNotifyToConfig(status);
 });
 
 ipcMain.on('request-suspicious-notify-status', (event) => {
     if (mainWindow) mainWindow.webContents.send('suspicious-notify-status', suspiciousNotifyEnabled);
+});
+
+ipcMain.on('lookup-player', async (event, query) => {
+    const result = await resolvePlayerIdentity(query);
+    if (mainWindow) mainWindow.webContents.send('lookup-player-result', { query, result });
+});
+
+ipcMain.on('ac-call', async (event, target) => {
+    const result = await performAcCall(target || {});
+    if (mainWindow) mainWindow.webContents.send('ac-call-result', result);
 });
 
 // --- AKTİF TARAMA / İPTAL SİSTEMİ ---
@@ -662,6 +707,50 @@ async function performTicketBanConfirm(channelId, reason) {
                 buttons: ['Tamam']
             });
         }
+    }
+}
+
+// --- KİMLİK SORGULA: "AC Çağır" butonu ---
+// "/dm-player" komutu FG_BOT_ID'nin ac-komut kanalındaki bir komutu.
+const AC_KOMUT_CHANNEL_ID = '1475520758095544490';
+// Kişinin etiketlenip AC ticket mesajının atıldığı duyuru kanalı.
+const AC_ANNOUNCE_CHANNEL_ID = '1470230489456578759';
+
+// Kimlik Sorgula sonucundaki kişiyi AC'ye çağırır: hem ac-komut kanalına
+// "/dm-player id:<oyun içi ID> message:<AC mesajı>" gönderir hem de duyuru
+// kanalında kişiyi (Discord ID ile) etiketleyip AC ticket mesajını atar.
+// Discord ID ve license'ın İKİSİ de yoksa (kimlik tam doğrulanmamış demektir)
+// hiçbir şey göndermeden "yetersiz bilgi" hatası döner.
+async function performAcCall({ discord, license, playerId, name }) {
+    if (!discord || !license) {
+        console.log(`[AC Çağır] Yetersiz bilgi (discord: ${discord || 'yok'}, license: ${license || 'yok'}), hiçbir şey gönderilmedi.`);
+        return { success: false, reason: 'insufficient', message: 'Discord ID veya License eksik - yetersiz bilgi, AC çağrılmadı.' };
+    }
+
+    const results = [];
+
+    try {
+        if (playerId) {
+            const komutChannel = client.channels.cache.get(AC_KOMUT_CHANNEL_ID);
+            if (!komutChannel) throw new Error(`ac-komut kanalı bulunamadı (${AC_KOMUT_CHANNEL_ID})`);
+            await komutChannel.sendSlash(FG_BOT_ID, 'dm-player', playerId, acMessage);
+            console.log(`[AC Çağır] /dm-player id:${playerId} gönderildi (${name || discord}).`);
+            results.push('dm-player komutu gönderildi');
+        } else {
+            console.log(`[AC Çağır] Oyun içi ID yok, /dm-player atlandı (${name || discord}).`);
+            results.push('/dm-player atlandı (oyun içi ID bilinmiyor)');
+        }
+
+        const announceChannel = client.channels.cache.get(AC_ANNOUNCE_CHANNEL_ID);
+        if (!announceChannel) throw new Error(`AC duyuru kanalı bulunamadı (${AC_ANNOUNCE_CHANNEL_ID})`);
+        await announceChannel.send(`<@${discord}> ${acTicketMessage}`);
+        console.log(`[AC Çağır] Duyuru kanalına etiketlendi (${name || discord}).`);
+        results.push('duyuru kanalına etiketlendi');
+
+        return { success: true, message: results.join(', ') + '.' };
+    } catch (error) {
+        console.log(`[Hata] AC Çağır: ${error.message}`);
+        return { success: false, reason: 'error', message: `Gönderilirken hata oluştu: ${error.message}` };
     }
 }
 
@@ -971,9 +1060,20 @@ const SUSPICIOUS_CHANNEL_ID = '1522577961558085742';
 // istek atmadan (optimizasyon) sadece bu diziye ekleyip en eskisini düşürüyoruz.
 const recentSuspiciousReports = [];
 
+// Discord'un özel emoji söz dizimini (<a:isim:id> / <:isim:id>) ve markdown
+// biçimlendirmesini temizler - Windows bildirimleri düz metin gösterdiği için
+// bunlar olduğu gibi kalırsa "<a:safe:1470797064857194590>" gibi çirkin bir kod görünür.
+function stripDiscordMarkup(text) {
+    return String(text || '')
+        .replace(/<a?:\w+:\d+>/g, '')
+        .replace(/[`*_~]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function findEmbedField(embed, pattern) {
     const field = embed?.fields?.find((f) => pattern.test(String(f.name || '').trim()));
-    return field ? String(field.value || '').replace(/[`*_~]/g, '').trim() : null;
+    return field ? stripDiscordMarkup(field.value) : null;
 }
 
 function extractSuspiciousIdentifier(embed) {
@@ -983,6 +1083,310 @@ function extractSuspiciousIdentifier(embed) {
         findEmbedField(embed, /discord/i) ||
         findEmbedField(embed, /^name$/i)
     );
+}
+
+// --- KİMLİK SORGULA: kill-log + connections-webhook zinciri ---
+// kill-log kanalları oyuncunun ID+isim+license'ını verir, connections-webhook o
+// license ile steam/discord/ip'sini verir. Yerel kayıtta yoksa bu iki kaynağı
+// istek üzerine (sadece sorgulandığında) tarıyoruz - arka planda sürekli çekmiyoruz.
+const KILL_LOG_CHANNEL_IDS = ['1470948766340223188', '1492906523603636484', '1492906545342578748'];
+const CONNECTIONS_WEBHOOK_CHANNEL_ID = '1513234125337919610';
+// Mesaj sayısı yerine ZAMAN bütçesiyle sınırlıyoruz - kanallar çok yoğun olabildiği
+// için sabit bir mesaj sayısı bazen yetersiz kalıyordu. Zincirde en fazla 2 tarama
+// art arda gelir (kill-log'lar paralel taranıyor -> tek tarama sayılır, sonra
+// connections-webhook) - ikisi de bu bütçeyi kullansa toplam ~14sn'yi geçmez.
+const LOOKUP_SCAN_TIME_BUDGET_MS = 7000;
+// Player ID -> kill-log'da license bulunduktan sonra connections-webhook'ta o
+// license'ı doğrulama adımı özel: bu bilginin kanalda mutlaka var olduğu biliniyor,
+// bu yüzden normal 7sn bütçesi yerine (kullanıcı isteğiyle) çok daha derin taranıyor.
+const LOOKUP_LICENSE_VERIFY_TIME_BUDGET_MS = 45000;
+// Discord ID / isim / license ile arandığında SADECE connections-webhook taranır
+// (kill-log'a hiç bakılmaz) - kullanıcı isteğiyle en az 30sn.
+const LOOKUP_CONNECTIONS_TIME_BUDGET_MS = 30000;
+// Discord ID/isim/license akışında kişi online çıkarsa Player ID'sini bulmak için
+// kill-log'a bakılıyor - standart 7sn'de bulunamadığı görüldüğü için (kişi henüz
+// hiç kill-log'a girmemiş de olabilir) buradaki tarama da uzatıldı.
+const LOOKUP_KILLLOG_VERIFY_TIME_BUDGET_MS = 20000;
+const LOOKUP_SCAN_PAGE_DELAY_MS = 150; // sayfalar arası rate-limit'e nazik bekleme
+
+// Bir kanalın geçmişini 100'erli sayfalar hâlinde (en yeniden eskiye) süre
+// dolana kadar tarar, matchFn ilk gerçek (falsy olmayan) sonucu döndürdüğünde durur.
+async function scanChannelHistory(channelId, matchFn, timeBudgetMs = LOOKUP_SCAN_TIME_BUDGET_MS) {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) {
+        console.log(`[Kimlik Sorgula] Kanal bulunamadı: ${channelId}`);
+        return null;
+    }
+
+    const startedAt = Date.now();
+    const deadline = startedAt + timeBudgetMs;
+    let before;
+    let pages = 0;
+    let scanned = 0;
+    while (Date.now() < deadline) {
+        let batch;
+        try {
+            batch = await channel.messages.fetch({ limit: 100, before });
+        } catch (error) {
+            console.log(`[Kimlik Sorgula] "${channel.name}" taranırken hata (${pages} sayfa, ${scanned} mesaj sonra): ${error.message}`);
+            return null;
+        }
+        pages++;
+        if (batch.size === 0) break;
+        scanned += batch.size;
+
+        for (const message of batch.values()) {
+            const result = matchFn(message);
+            if (result) {
+                console.log(`[Kimlik Sorgula] "${channel.name}": eşleşme bulundu (${pages} sayfa, ${scanned} mesaj, ${Date.now() - startedAt}ms).`);
+                return result;
+            }
+        }
+
+        if (batch.size < 100) break; // kanalın başına gelindi
+        before = batch.last().id;
+        if (Date.now() >= deadline) break;
+        await new Promise((resolve) => setTimeout(resolve, LOOKUP_SCAN_PAGE_DELAY_MS));
+    }
+    console.log(`[Kimlik Sorgula] "${channel.name}": eşleşme bulunamadı (${pages} sayfa, ${scanned} mesaj, ${Date.now() - startedAt}ms).`);
+    return null;
+}
+
+// Kill-log embed'i "Öldüren"/"Ölen Oyuncu" (isim + "(ID: N)") ve license'lardan
+// oluşuyor. Canlı testte license'ın BAZEN isim field'ının KENDİ değeri içinde
+// (alt satırda), bazen AYRI bir field olarak geldiği görüldü - ikisini de
+// deniyoruz: önce aynı field içinde ara, yoksa daha sonra gelen "düz" license
+// field'larını sırayla (killer önce, victim sonra) eşle.
+function parseKillLogEntries(embed) {
+    if (!embed?.fields?.length) return [];
+    const idHolders = [];
+    const looseLicenses = [];
+    for (const field of embed.fields) {
+        const value = String(field.value || '');
+        const idMatch = value.match(/^(.*?)\s*\(ID:\s*(\d+)\)/i);
+        const licenseInSameValue = value.match(/license:[a-f0-9]+/i);
+        if (idMatch) {
+            idHolders.push({
+                name: stripDiscordMarkup(idMatch[1]),
+                playerId: idMatch[2],
+                license: licenseInSameValue ? licenseInSameValue[0] : null,
+            });
+            continue;
+        }
+        if (licenseInSameValue) looseLicenses.push(licenseInSameValue[0]);
+    }
+    let looseIndex = 0;
+    return idHolders.map((holder) => (holder.license ? holder : { ...holder, license: looseLicenses[looseIndex++] || null }));
+}
+
+// Üç kill-log kanalı SIRAYLA değil PARALEL taranıyor. Ayrıca ilk bulunan sonuç
+// gelir gelmez dönüyoruz (diğer ikisinin taramasını arka planda bırakıp
+// beklemiyoruz) - önceden Promise.all üçünün de bitmesini beklediği için biri
+// hemen bulsa bile toplam süre en yavaş kanal kadar (7sn) uzuyordu.
+function firstNonNull(promises) {
+    return new Promise((resolve) => {
+        let remaining = promises.length;
+        if (remaining === 0) return resolve(null);
+        for (const p of promises) {
+            p.then((value) => {
+                remaining--;
+                if (value) resolve(value);
+                else if (remaining === 0) resolve(null);
+            }).catch(() => {
+                remaining--;
+                if (remaining === 0) resolve(null);
+            });
+        }
+    });
+}
+
+async function findInKillLogs({ playerId, license, timeBudgetMs } = {}) {
+    const matchFn = (message) => {
+        const embed = message.embeds?.[0];
+        const entries = parseKillLogEntries(embed);
+        const match = entries.find(
+            (e) => (playerId && e.playerId === playerId) || (license && e.license === license)
+        );
+        if (match && !match.license) {
+            const rawFields = (embed?.fields || []).map((f) => `[${f.name}] ${f.value}`.slice(0, 90)).join(' || ');
+            console.log(`[Kimlik Sorgula] UYARI: ${match.name} (ID: ${match.playerId}) için license bulunamadı. Ham alanlar: ${rawFields}`);
+        }
+        return match || null;
+    };
+    const hit = await firstNonNull(
+        KILL_LOG_CHANNEL_IDS.map((channelId) => scanChannelHistory(channelId, matchFn, timeBudgetMs))
+    );
+    return hit ? { ...hit, title: 'Kill Log' } : null;
+}
+
+// connections-webhook embed'i field değil, tek bir metin bloğu (description) -
+// "Server ID: N", "Identifiers" listesinde steam/license/discord/ip JSON benzeri
+// satırlar halinde. Field aramak yerine tüm metni birleştirip regex ile çekiyoruz.
+// ÖNEMLİ: "New connection" mesajında Server ID YOK (kişi sunucuya daha yeni
+// girdiği an için henüz atanmamış), sadece "New disconnection"da var. Bu yüzden
+// "online" (şu an oyunda mı) bilgisini Server ID'nin varlığından değil, mesaj
+// başlığından çıkarıyoruz. Başlık ("New connection"/"New disconnection") embed'in
+// title'ında DEĞİL author.name'inde geliyor (canlı testte görüldü) - title her
+// zaman boş olduğu için eski kod "online" hesabını hep false buluyordu, artık
+// ikisi de deneniyor + tam eşleşme yerine anahtar kelime bazlı kontrol yapılıyor.
+function parseConnectionsWebhookEntry(embed) {
+    if (!embed) return null;
+    const title = stripDiscordMarkup(embed.title) || stripDiscordMarkup(embed.author?.name) || '';
+    const blob = [title, embed.description, ...(embed.fields || []).map((f) => `${f.name}\n${f.value}`)]
+        .filter(Boolean)
+        .join('\n');
+
+    const nameMatch = blob.match(/\*\*(.+?)\*\*\s+(has left|is connecting|has joined|was)/i);
+    const serverIdMatch = blob.match(/server\s*id:\s*(\d+)/i);
+    const steamMatch = blob.match(/"?steam:([a-f0-9]+)"?/i);
+    const licenseMatch = blob.match(/"?license:([a-f0-9]+)"?/i);
+    const discordMatch = blob.match(/"?discord:(\d+)"?/i);
+    const ipMatch = blob.match(/"?ip:([\d.]+)"?/i);
+
+    if (!serverIdMatch && !licenseMatch) return null;
+
+    return {
+        name: nameMatch ? stripDiscordMarkup(nameMatch[1]) : null,
+        playerId: serverIdMatch ? serverIdMatch[1] : null,
+        steam: steamMatch ? `steam:${steamMatch[1]}` : null,
+        license: licenseMatch ? `license:${licenseMatch[1]}` : null,
+        discord: discordMatch ? discordMatch[1] : null,
+        ip: ipMatch ? ipMatch[1] : null,
+        eventTitle: title || null,
+        // "connection" geçiyor ama "disconnection"/"reject" geçmiyorsa online -
+        // tam eşleşme yerine anahtar kelime araması (başlıkta ekstra emoji/boşluk
+        // farkı olsa da bozulmasın diye).
+        online: /connection/i.test(title) && !/disconnection/i.test(title) && !/reject/i.test(title),
+    };
+}
+
+async function findInConnectionsWebhook({ playerId, license, discordId, name, timeBudgetMs } = {}) {
+    return scanChannelHistory(
+        CONNECTIONS_WEBHOOK_CHANNEL_ID,
+        (message) => {
+            const entry = parseConnectionsWebhookEntry(message.embeds?.[0]);
+            if (!entry) return null;
+            if (license && entry.license === license) return entry;
+            if (playerId && entry.playerId === playerId) return entry;
+            if (discordId && entry.discord === discordId) return entry;
+            if (name && entry.name && entry.name.toLowerCase() === name.toLowerCase()) return entry;
+            return null;
+        },
+        timeBudgetMs
+    );
+}
+
+// Sorgu metninden tür tahmini: "license:" ile başlıyorsa license, sadece
+// rakamsa uzunluğuna göre Discord ID (snowflake, 15+ hane) ya da Player ID
+// (kısa - sunucuda birkaç yüz oyuncu var), aksi halde isim.
+function detectLookupQueryType(q) {
+    if (/^license:/i.test(q)) return 'license';
+    if (/^\d+$/.test(q)) return q.length >= 15 ? 'discordId' : 'playerId';
+    return 'name';
+}
+
+// Tam zincir - iki farklı yön var:
+//
+// 1) PLAYER ID ile sorulursa: kill-log'larda o ID'yi arayıp license buluruz,
+//    sonra o license'ı connections-webhook'ta doğrularız. FiveM sunucusu her
+//    restart'ta Player ID sayacını sıfırladığı için ("42" farklı zamanlarda
+//    farklı kişilere ait olabilir) BU SORGU HİÇ CACHE'TEN KISA DEVRE YAPILMAZ -
+//    her seferinde taze kill-log taraması yapılır ve player_index.json'a Player
+//    ID ANAHTARIYLA YAZILMAZ (sadece license/discord ile - onlar restart'tan
+//    etkilenmez). Kişinin connections-webhook'taki EN SON olayı "New connection"
+//    değilse (şu an oyunda değilse) sonuç "stale" (bu ID artık başka birine ait
+//    olabilir) uyarısıyla dönüyor.
+//
+// 2) DISCORD ID / İSİM / LICENSE ile sorulursa: önce yerel cache'e bakılır
+//    (bunlar kalıcı kimlikler, restart'tan etkilenmez). Yoksa connections-
+//    webhook'ta o kişinin EN SON olayı bulunur - "New connection" ise kişi hâlâ
+//    oyunda demektir, kill-log'da license'ıyla arayıp güncel Player ID'sini de
+//    buluruz. "New disconnection"/"Rejected connection" ise kişi oyunda değildir
+//    (Player ID yok), kill-log'a hiç bakılmaz.
+async function resolvePlayerIdentity(query) {
+    const q = String(query || '').trim();
+    if (!q) return null;
+
+    const type = detectLookupQueryType(q);
+
+    if (type === 'playerId') {
+        console.log(`[Kimlik Sorgula] Player ID ${q} için kill-log taranıyor...`);
+        const killHit = await findInKillLogs({ playerId: q });
+        if (!killHit) {
+            console.log(`[Kimlik Sorgula] Player ID ${q} kill-log'larda bulunamadı.`);
+            return null;
+        }
+        console.log(`[Kimlik Sorgula] Player ID ${q} -> ${killHit.name} (${killHit.license}). Şimdi connections-webhook'ta bulunana kadar (max ${LOOKUP_LICENSE_VERIFY_TIME_BUDGET_MS / 1000}sn) aranıyor...`);
+
+        const connHit = await findInConnectionsWebhook({ license: killHit.license, timeBudgetMs: LOOKUP_LICENSE_VERIFY_TIME_BUDGET_MS });
+        console.log(`[Kimlik Sorgula] connections-webhook sonucu: ${connHit ? `bulundu (online: ${connHit.online})` : 'bulunamadı'}.`);
+        const merged = {
+            playerId: killHit.playerId,
+            name: connHit?.name || killHit.name || null,
+            steam: connHit?.steam || null,
+            discord: connHit?.discord || null,
+            license: killHit.license,
+            ip: connHit?.ip || null,
+            logId: null,
+            title: 'Kill Log',
+            lastSeenAt: new Date().toISOString(),
+            reportCount: 1,
+            stale: !connHit?.online,
+            staleNote: !connHit
+                ? "connections-webhook'ta doğrulanamadı, bilgiler eski bir oturuma ait olabilir."
+                : !connHit.online
+                    ? `Bu kişi şu an oyunda görünmüyor (son olay: ${connHit.eventTitle}) - sunucu yeniden başlamış olabilir, bu ID artık başka birine ait olabilir.`
+                    : null,
+        };
+
+        return merged;
+    }
+
+    // NOT: burada bilerek yerel cache'e bakılmıyor. Kişinin oyun içi ID'si (ve
+    // online/offline durumu) her an değişebildiği için her sorguda gerçekten
+    // taze bir tarama yapılıyor - "adam orada var" diye eski sonucu döndürüp
+    // geçmemesi için (kullanıcı isteğiyle, player_index.json artık sadece
+    // arşiv/geçmiş kayıt olarak yazılıyor, okunmuyor).
+
+    // Discord ID / isim / license sorgusunda ana kaynak connections-webhook -
+    // en az 30sn taranıyor. Kişi online çıkarsa (connections-webhook'ta Player ID
+    // olmadığı için) bulunan license ile kill-log'da Player ID'si de aranıyor.
+    console.log(`[Kimlik Sorgula] "${q}" (${type}) için connections-webhook taranıyor (min ${LOOKUP_CONNECTIONS_TIME_BUDGET_MS / 1000}sn)...`);
+    const connQuery = type === 'discordId' ? { discordId: q } : type === 'license' ? { license: q } : { name: q };
+    const connHit = await findInConnectionsWebhook({ ...connQuery, timeBudgetMs: LOOKUP_CONNECTIONS_TIME_BUDGET_MS });
+    if (!connHit) {
+        console.log(`[Kimlik Sorgula] "${q}" connections-webhook'ta bulunamadı.`);
+        return null;
+    }
+    console.log(`[Kimlik Sorgula] "${q}" -> ${connHit.name} (online: ${connHit.online}, son olay: ${connHit.eventTitle}).`);
+
+    let killHit = null;
+    if (connHit.online && connHit.license) {
+        console.log(`[Kimlik Sorgula] Kişi online, kill-log'da Player ID aranıyor (max ${LOOKUP_KILLLOG_VERIFY_TIME_BUDGET_MS / 1000}sn)...`);
+        killHit = await findInKillLogs({ license: connHit.license, timeBudgetMs: LOOKUP_KILLLOG_VERIFY_TIME_BUDGET_MS });
+        console.log(`[Kimlik Sorgula] kill-log sonucu: ${killHit ? `Player ID ${killHit.playerId}` : 'bulunamadı'}.`);
+    }
+
+    const merged = {
+        playerId: connHit.playerId || killHit?.playerId || null,
+        name: connHit.name || killHit?.name || null,
+        steam: connHit.steam || null,
+        discord: connHit.discord || null,
+        license: connHit.license || killHit?.license || null,
+        ip: connHit.ip || null,
+        logId: null,
+        title: connHit.eventTitle,
+        lastSeenAt: new Date().toISOString(),
+        reportCount: 1,
+        stale: !connHit.online,
+        staleNote: !connHit.online
+            ? `Bu kişi şu an oyunda değil (son olay: ${connHit.eventTitle}) - Player ID yok.`
+            : connHit.online && !killHit
+                ? 'Kişi online ama kill-log\'da bulunamadı - henüz kimseyi öldürmemiş/ölmemiş olabilir, bu yüzden Player ID gösterilemiyor.'
+                : null,
+    };
+
+    return merged;
 }
 
 // Bu kişinin daha önce kaç kez düştüğünü (son 50 rapor içinde) kayan pencereye
@@ -1003,7 +1407,7 @@ function recordSuspiciousReport(message) {
 function showSuspiciousNotification({ embed, displayName, occurrences }) {
     if (!suspiciousNotifyEnabled || !Notification.isSupported()) return;
 
-    const baseTitle = embed?.title || 'Şüpheli Aktivite';
+    const baseTitle = stripDiscordMarkup(embed?.title) || 'Şüpheli Aktivite';
     const repeated = occurrences >= 2;
     const notification = new Notification({
         title: repeated ? `🚨 ${occurrences}. KEZ DÜŞTÜ — ${baseTitle}` : `⚠️ ${baseTitle}`,
@@ -1020,10 +1424,10 @@ function showSuspiciousNotification({ embed, displayName, occurrences }) {
     notification.show();
 }
 
-// Panel/bot kapalıyken kaçırılan raporları yakalamak için açılışta bir kez son 50
-// mesajı çekiyoruz (tek seferlik istek, tekrarlı polling yok - optimizasyon).
-// İlk kurulumda (kalıcı bir "son görülen" yoksa) geçmiş için bildirim göndermiyoruz,
-// sadece pencereyi kurup bir sonraki gerçek mesajdan itibaren takip başlıyor.
+// Açılışta son 50 mesajı bir kez çekip "kaçıncı kez düştü" sayaç penceresini
+// dolduruyoruz (tek seferlik istek, tekrarlı polling yok - optimizasyon). Bu 50
+// mesajın HİÇBİRİ için bildirim atılmıyor - bildirim sadece bundan sonra canlı
+// gelen (messageCreate) mesajlar için gönderiliyor.
 async function catchUpSuspiciousChannel() {
     const channel = client.channels.cache.get(SUSPICIOUS_CHANNEL_ID);
     if (!channel) {
@@ -1035,20 +1439,10 @@ async function catchUpSuspiciousChannel() {
         if (recent.size === 0) return;
 
         const sorted = [...recent.values()].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
-        const hadPriorState = Boolean(lastSeenSuspiciousId);
-
         for (const m of sorted) {
-            const isMissed = hadPriorState && BigInt(m.id) > BigInt(lastSeenSuspiciousId);
-            const report = recordSuspiciousReport(m);
-            if (isMissed) {
-                console.log(`[Şüpheli Bildirim] Kapalıyken kaçırılan rapor: ${report.displayName} (${report.occurrences}. kez)`);
-                showSuspiciousNotification(report);
-            }
+            recordSuspiciousReport(m);
         }
-
-        lastSeenSuspiciousId = sorted[sorted.length - 1].id;
-        saveConfigValue('LAST_SEEN_SUSPICIOUS_ID', lastSeenSuspiciousId);
-        console.log(`[Şüpheli Bildirim] Son ${sorted.length} mesaj tarandı, takip aktif.`);
+        console.log(`[Şüpheli Bildirim] Son ${sorted.length} mesaj tarandı (sayaç dolduruldu, bildirim atılmadı), takip aktif.`);
     } catch (error) {
         console.log(`[Şüpheli Bildirim] Son 50 mesaj çekilemedi: ${error.message}`);
     }
@@ -1130,8 +1524,6 @@ client.on('messageCreate', async (message) => {
     if (message.channel.id === SUSPICIOUS_CHANNEL_ID && message.author.id !== client.user.id) {
         const report = recordSuspiciousReport(message);
         showSuspiciousNotification(report);
-        lastSeenSuspiciousId = message.id;
-        saveConfigValue('LAST_SEEN_SUSPICIOUS_ID', message.id);
     }
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
