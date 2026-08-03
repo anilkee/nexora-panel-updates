@@ -55,6 +55,101 @@ ipcRenderer.on('ticket-geldi', () => {
     playNotificationSound();
 });
 
+// --- KİMLİK SORGULA (webhook-system loglarından derlenen yerel kayıt) ---
+const lookupInput = document.getElementById('lookupInput');
+const lookupBtn = document.getElementById('lookupBtn');
+const lookupResult = document.getElementById('lookupResult');
+const lookupEmpty = document.getElementById('lookupEmpty');
+const acCallBtn = document.getElementById('acCallBtn');
+const acCallStatus = document.getElementById('acCallStatus');
+let currentLookupResult = null;
+
+function addLookupRow(label, value) {
+    if (!value) return;
+    const row = document.createElement('div');
+    row.className = 'lookup-row';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    const valueSpan = document.createElement('span');
+    valueSpan.textContent = value;
+    row.append(labelSpan, valueSpan);
+    lookupResult.appendChild(row);
+}
+
+function runLookup() {
+    const query = lookupInput.value.trim();
+    if (!query) return;
+    lookupResult.style.display = 'none';
+    lookupEmpty.style.display = 'block';
+    lookupEmpty.textContent = 'Aranıyor... (yerel kayıtta yoksa kanal geçmişi taranıyor, birkaç saniye sürebilir)';
+    lookupBtn.disabled = true;
+    ipcRenderer.send('lookup-player', query);
+}
+
+lookupBtn.addEventListener('click', runLookup);
+lookupInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runLookup();
+});
+
+ipcRenderer.on('lookup-player-result', (event, { result }) => {
+    lookupBtn.disabled = false;
+    lookupResult.innerHTML = '';
+    currentLookupResult = result;
+    acCallStatus.style.display = 'none';
+    if (!result) {
+        lookupResult.style.display = 'none';
+        lookupEmpty.textContent = 'Kayıt bulunamadı.';
+        lookupEmpty.style.display = 'block';
+        acCallBtn.style.display = 'none';
+        return;
+    }
+    lookupEmpty.style.display = 'none';
+    if (result.staleNote) {
+        const warning = document.createElement('p');
+        warning.className = 'hint';
+        warning.style.color = 'var(--warn)';
+        warning.textContent = `⚠️ ${result.staleNote}`;
+        lookupResult.appendChild(warning);
+    }
+    addLookupRow('Oyun İçi ID', result.playerId);
+    addLookupRow('İsim', result.name);
+    addLookupRow('Steam', result.steam);
+    addLookupRow('Discord', result.discord);
+    addLookupRow('License', result.license);
+    addLookupRow('IP', result.ip);
+    addLookupRow('Log ID', result.logId);
+    addLookupRow('Rapor Türü', result.title);
+    addLookupRow('Rapor Sayısı', String(result.reportCount || 1));
+    if (result.lastSeenAt) {
+        addLookupRow('Son Görülme', new Date(result.lastSeenAt).toLocaleString('tr-TR'));
+    }
+    lookupResult.style.display = 'block';
+    acCallBtn.disabled = false;
+    setButtonLabel(acCallBtn, 'AC Çağır');
+    acCallBtn.style.display = 'flex';
+});
+
+acCallBtn.addEventListener('click', () => {
+    if (!currentLookupResult) return;
+    acCallBtn.disabled = true;
+    acCallStatus.style.display = 'block';
+    acCallStatus.style.color = '';
+    acCallStatus.textContent = 'Gönderiliyor...';
+    ipcRenderer.send('ac-call', {
+        discord: currentLookupResult.discord,
+        license: currentLookupResult.license,
+        playerId: currentLookupResult.playerId,
+        name: currentLookupResult.name,
+    });
+});
+
+ipcRenderer.on('ac-call-result', (event, result) => {
+    acCallBtn.disabled = false;
+    acCallStatus.style.display = 'block';
+    acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
+    acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
+});
+
 // --- AKTİF TARAMA / İPTAL KUTUCUKLARI ---
 const activeScansCard = document.getElementById('activeScansCard');
 const activeScansList = document.getElementById('activeScansList');
@@ -383,6 +478,29 @@ saveBanMessageBtn.addEventListener('click', () => {
 });
 
 ipcRenderer.send('request-ban-message');
+
+// --- AC ÇAĞIR MESAJLARI ---
+const acMessageInput = document.getElementById('acMessageInput');
+const acTicketMessageInput = document.getElementById('acTicketMessageInput');
+const saveAcMessagesBtn = document.getElementById('saveAcMessagesBtn');
+
+ipcRenderer.on('ac-message', (event, text) => {
+    acMessageInput.value = text || '';
+});
+
+ipcRenderer.on('ac-ticket-message', (event, text) => {
+    acTicketMessageInput.value = text || '';
+});
+
+saveAcMessagesBtn.addEventListener('click', () => {
+    ipcRenderer.send('set-ac-message', acMessageInput.value);
+    ipcRenderer.send('set-ac-ticket-message', acTicketMessageInput.value);
+    setButtonLabel(saveAcMessagesBtn, 'Kaydedildi!');
+    setTimeout(() => setButtonLabel(saveAcMessagesBtn, 'Mesajları Kaydet'), 1500);
+});
+
+ipcRenderer.send('request-ac-message');
+ipcRenderer.send('request-ac-ticket-message');
 
 // --- OTOMATİK KARŞILAMA AÇMA/KAPAMA ---
 const autoReplyToggle = document.getElementById('autoReplyToggle');
