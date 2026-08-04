@@ -313,22 +313,6 @@
         </div>
 
         <div id="mainView">
-            <div class="card" id="lookupCard">
-                <h2><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</h2>
-                <div class="field">
-                    <label>Oyun İçi ID, İsim, Steam, Discord veya License</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" id="lookupInput" placeholder="Örn: 3852" style="flex: 1 1 auto; min-width: 0;">
-                        <button class="primary" id="lookupBtn" style="width: 40px; flex: 0 0 40px; padding: 0;"><svg class="icon"><use href="#icon-search"></use></svg></button>
-                    </div>
-                    <p class="hint">Player ID, Discord ID, isim veya License ile arar - önce yerel kayıt. Player ID ile kill-log'da license bulunup connections-webhook'ta doğrulanır; Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
-                </div>
-                <div id="lookupResult" style="display: none;"></div>
-                <button class="primary" id="acCallBtn" style="display: none; margin-top: 10px;"><svg class="icon"><use href="#icon-flag"></use></svg><span class="label">AC Çağır</span></button>
-                <p class="hint" id="acCallStatus" style="display: none;"></p>
-                <p class="hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
-            </div>
-
             <div class="card" id="ticketsCard">
                 <h2><svg class="icon"><use href="#icon-ticket"></use></svg>Aktif Ticketlar</h2>
                 <div id="ticketsList"></div>
@@ -342,6 +326,27 @@
             <div class="idle-state" id="idleState">
                 <svg class="icon"><use href="#icon-ticket"></use></svg>
                 <p>Ticket bekleniyor...</p>
+            </div>
+
+            <div class="card" id="lookupCard">
+                <h2><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</h2>
+                <div class="field">
+                    <label>Oyun İçi ID, İsim, Steam, Discord veya License</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="lookupInput" placeholder="Örn: 3852" style="flex: 1 1 auto; min-width: 0;">
+                        <button class="primary" id="lookupBtn" style="width: 40px; flex: 0 0 40px; padding: 0;"><svg class="icon"><use href="#icon-search"></use></svg></button>
+                    </div>
+                    <p class="hint">Player ID, Discord ID, isim veya License ile arar - önce yerel kayıt. Player ID ile kill-log'da license bulunup connections-webhook'ta doğrulanır; Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
+                </div>
+                <div id="lookupResult" style="display: none;"></div>
+                <button class="primary" id="acCallBtn" style="display: none; margin-top: 10px;"><svg class="icon"><use href="#icon-flag"></use></svg><span class="label">AC Çağır</span></button>
+                <div id="acCallCountRow" style="display: none; gap: 8px; margin-top: 10px;">
+                    <button class="primary" id="acCall1xBtn" style="flex: 1;">1x</button>
+                    <button class="primary" id="acCall2xBtn" style="flex: 1;">2x</button>
+                    <button class="primary" id="acCall3xBtn" style="flex: 1;">3x</button>
+                </div>
+                <p class="hint" id="acCallStatus" style="display: none;"></p>
+                <p class="hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
             </div>
 
             <div class="card">
