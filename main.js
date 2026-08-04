@@ -79,7 +79,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.8.0';
+const CURRENT_VERSION = '1.8.1';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -716,17 +716,37 @@ const AC_KOMUT_CHANNEL_ID = '1475520758095544490';
 // Kişinin etiketlenip AC ticket mesajının atıldığı duyuru kanalı.
 const AC_ANNOUNCE_CHANNEL_ID = '1470230489456578759';
 
+// Aynı kişi için (çift tıklama, çift IPC olayı, her ne sebeple olursa olsun)
+// kısa süre içinde ikinci bir AC Çağır isteği gelirse engeller - "1 kere bastım
+// ama 6 kere gitti" tarzı çift gönderimlere karşı sunucu tarafında son kale.
+const acCallCooldown = new Map(); // discordId -> son gönderim zamanı (ms)
+const AC_CALL_COOLDOWN_MS = 10000;
+
 // Kimlik Sorgula sonucundaki kişiyi AC'ye çağırır: hem ac-komut kanalına
 // "/dm-player id:<oyun içi ID> message:<AC mesajı>" gönderir hem de duyuru
 // kanalında kişiyi (Discord ID ile) etiketleyip AC ticket mesajını atar.
+// "count" (1/2/3) kaçıncı çağrı olduğunu duyuru mesajının sonuna "Nx" olarak
+// ekler - panel arayüzünde AC Çağır butonuna basınca 1x/2x/3x seçimi çıkıyor.
 // Discord ID ve license'ın İKİSİ de yoksa (kimlik tam doğrulanmamış demektir)
 // hiçbir şey göndermeden "yetersiz bilgi" hatası döner.
-async function performAcCall({ discord, license, playerId, name }) {
+async function performAcCall({ discord, license, playerId, name, count }) {
     if (!discord || !license) {
         console.log(`[AC Çağır] Yetersiz bilgi (discord: ${discord || 'yok'}, license: ${license || 'yok'}), hiçbir şey gönderilmedi.`);
         return { success: false, reason: 'insufficient', message: 'Discord ID veya License eksik - yetersiz bilgi, AC çağrılmadı.' };
     }
 
+    const lastCallAt = acCallCooldown.get(discord);
+    if (lastCallAt && Date.now() - lastCallAt < AC_CALL_COOLDOWN_MS) {
+        console.log(`[AC Çağır] ${discord} için ${AC_CALL_COOLDOWN_MS}ms içinde tekrar istek geldi, çift gönderim koruması devrede - engellendi.`);
+        return {
+            success: false,
+            reason: 'cooldown',
+            message: `Bu kişi için ${Math.ceil(AC_CALL_COOLDOWN_MS / 1000)} saniye önce zaten AC çağrıldı - çift gönderimi önlemek için kısa bir süre bekleyip tekrar dene.`,
+        };
+    }
+    acCallCooldown.set(discord, Date.now());
+
+    const callCount = [1, 2, 3].includes(Number(count)) ? Number(count) : 1;
     const results = [];
 
     try {
@@ -743,9 +763,9 @@ async function performAcCall({ discord, license, playerId, name }) {
 
         const announceChannel = client.channels.cache.get(AC_ANNOUNCE_CHANNEL_ID);
         if (!announceChannel) throw new Error(`AC duyuru kanalı bulunamadı (${AC_ANNOUNCE_CHANNEL_ID})`);
-        await announceChannel.send(`<@${discord}> ${acTicketMessage}`);
-        console.log(`[AC Çağır] Duyuru kanalına etiketlendi (${name || discord}).`);
-        results.push('duyuru kanalına etiketlendi');
+        await announceChannel.send(`<@${discord}> ${acTicketMessage} ${callCount}x`);
+        console.log(`[AC Çağır] Duyuru kanalına etiketlendi (${name || discord}, ${callCount}x).`);
+        results.push(`duyuru kanalına ${callCount}x olarak etiketlendi`);
 
         return { success: true, message: results.join(', ') + '.' };
     } catch (error) {
@@ -1396,24 +1416,26 @@ function recordSuspiciousReport(message) {
     const embed = message.embeds?.[0];
     const identifier = extractSuspiciousIdentifier(embed) || message.author?.id || message.id;
     const displayName = findEmbedField(embed, /^name$/i) || message.author?.username || 'Bilinmeyen';
+    const playerId = findEmbedField(embed, /player\s*id/i);
 
     recentSuspiciousReports.push(identifier);
     if (recentSuspiciousReports.length > 50) recentSuspiciousReports.shift();
 
     const occurrences = recentSuspiciousReports.filter((id) => id === identifier).length;
-    return { embed, displayName, occurrences };
+    return { embed, displayName, playerId, occurrences };
 }
 
-function showSuspiciousNotification({ embed, displayName, occurrences }) {
+function showSuspiciousNotification({ embed, displayName, playerId, occurrences }) {
     if (!suspiciousNotifyEnabled || !Notification.isSupported()) return;
 
     const baseTitle = stripDiscordMarkup(embed?.title) || 'Şüpheli Aktivite';
+    const whoText = playerId ? `${playerId} ID'li ${displayName}` : displayName;
     const repeated = occurrences >= 2;
     const notification = new Notification({
         title: repeated ? `🚨 ${occurrences}. KEZ DÜŞTÜ — ${baseTitle}` : `⚠️ ${baseTitle}`,
         body: repeated
-            ? `${displayName} son 50 raporda ${occurrences}. kez tespit edildi!`
-            : `${displayName} için yeni bir hile bildirimi geldi.`,
+            ? `${whoText} son 50 raporda ${occurrences}. kez tespit edildi!`
+            : `${whoText} için yeni bir hile bildirimi geldi.`,
     });
     notification.on('click', () => {
         if (mainWindow) {
@@ -1506,16 +1528,29 @@ client.on('channelDelete', (channel) => {
 client.on('messageCreate', async (message) => {
 
     // --- BEKLETİLEN TICKET BİLDİRİMİ ---
-    // Müşteri beklemedeyken mesaj attığında sesi TEK SEFER çalıp ticket'ı otomatik
-    // beklemeden çıkarıyoruz. heldTickets'tan hemen silindiği için müşterinin
-    // ardından yazacağı diğer mesajlar bu bloğu bir daha tetiklemiyor (tekrar tekrar
-    // ses çalması buradan engellenmiş oluyor).
+    // Müşteri beklemedeyken mesaj attığında Windows bildirimi (ses DEĞİL - eski
+    // ses bildirimi kaldırıldı, artık native Notification tek başına yeterli)
+    // gönderip ticket'ı otomatik beklemeden çıkarıyoruz. heldTickets'tan hemen
+    // silindiği için müşterinin ardından yazacağı diğer mesajlar bu bloğu bir
+    // daha tetiklemiyor (tekrar tekrar bildirim gitmesi buradan engellenmiş oluyor).
     if (heldTickets.has(message.channel.id) && !message.author.bot && message.author.id !== client.user.id) {
         console.log(`[Beklet] ${message.channel.name} kanalında yeni mesaj var, beklemeden çıkarılıyor.`);
         heldTickets.delete(message.channel.id);
         if (mainWindow) {
-            mainWindow.webContents.send('ticket-geldi');
             mainWindow.webContents.send('ticket-hold-changed', { channelId: message.channel.id, held: false });
+        }
+        if (Notification.isSupported()) {
+            const notification = new Notification({
+                title: '⏸️ Beklemedeki Ticket Yanıtladı',
+                body: `${message.channel.name} kanalında müşteri mesaj yazdı, ticket beklemeden çıkarıldı.`,
+            });
+            notification.on('click', () => {
+                if (mainWindow) {
+                    if (mainWindow.isMinimized()) mainWindow.restore();
+                    mainWindow.focus();
+                }
+            });
+            notification.show();
         }
         broadcastTicketList();
     }
