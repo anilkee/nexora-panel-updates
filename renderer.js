@@ -61,6 +61,10 @@ const lookupBtn = document.getElementById('lookupBtn');
 const lookupResult = document.getElementById('lookupResult');
 const lookupEmpty = document.getElementById('lookupEmpty');
 const acCallBtn = document.getElementById('acCallBtn');
+const acCallCountRow = document.getElementById('acCallCountRow');
+const acCall1xBtn = document.getElementById('acCall1xBtn');
+const acCall2xBtn = document.getElementById('acCall2xBtn');
+const acCall3xBtn = document.getElementById('acCall3xBtn');
 const acCallStatus = document.getElementById('acCallStatus');
 let currentLookupResult = null;
 
@@ -95,7 +99,9 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     lookupBtn.disabled = false;
     lookupResult.innerHTML = '';
     currentLookupResult = result;
+    acCallSending = false;
     acCallStatus.style.display = 'none';
+    acCallCountRow.style.display = 'none';
     if (!result) {
         lookupResult.style.display = 'none';
         lookupEmpty.textContent = 'Kayıt bulunamadı.';
@@ -130,8 +136,16 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
 });
 
 acCallBtn.addEventListener('click', () => {
-    if (!currentLookupResult) return;
-    acCallBtn.disabled = true;
+    acCallBtn.style.display = 'none';
+    acCallCountRow.style.display = 'flex';
+});
+
+let acCallSending = false;
+
+function runAcCall(count) {
+    if (!currentLookupResult || acCallSending) return;
+    acCallSending = true;
+    acCallCountRow.style.display = 'none';
     acCallStatus.style.display = 'block';
     acCallStatus.style.color = '';
     acCallStatus.textContent = 'Gönderiliyor...';
@@ -140,11 +154,18 @@ acCallBtn.addEventListener('click', () => {
         license: currentLookupResult.license,
         playerId: currentLookupResult.playerId,
         name: currentLookupResult.name,
+        count,
     });
-});
+}
+
+acCall1xBtn.addEventListener('click', () => runAcCall(1));
+acCall2xBtn.addEventListener('click', () => runAcCall(2));
+acCall3xBtn.addEventListener('click', () => runAcCall(3));
 
 ipcRenderer.on('ac-call-result', (event, result) => {
-    acCallBtn.disabled = false;
+    acCallSending = false;
+    // Tekrar çağırabilmek için (ör. cevap gelmezse 2x/3x ile tekrar) butonu geri getiriyoruz.
+    acCallBtn.style.display = 'flex';
     acCallStatus.style.display = 'block';
     acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
     acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
