@@ -1,4 +1,4 @@
 {
-  "version": "1.8.0",
-  "changelog": "- Şüpheli aktivite bildiriminde Discord emoji kodu artık başlıkta çirkin görünmüyor\n- Şüpheli aktivite: açılışta çekilen son 50 mesaj artık bildirim spam'i yapmıyor, sadece sayaç için kullanılıyor\n- YENİ: Kimlik Sorgula - Player ID, Discord ID, isim veya License ile arama; kill-log ve connections-webhook kanallarını tarayıp kişinin isim/steam/discord/license/IP/oyun içi ID bilgilerini buluyor\n- YENİ: AC Çağır butonu - bulunan kişiye /dm-player komutu gönderiyor ve AC duyuru kanalında etiketliyor, gerekli bilgi eksikse uyarı veriyor"
+  "version": "1.8.1",
+  "changelog": "- Ana görünüm sırası düzenlendi: Aktif Ticketlar/Aktif Taramalar en üstte, Kimlik Sorgula ortada, Durum en altta\n- Beklet: eski ses bildirimi kaldırıldı, artık sadece Windows bildirimi geliyor\n- AC Çağır: çift gönderim koruması eklendi (aynı kişi için 10sn içinde ikinci istek engelleniyor)\n- Şüpheli aktivite bildirimi artık kişinin Player ID'sini de gösteriyor"
 }
