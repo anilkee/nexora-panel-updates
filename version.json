@@ -1,4 +1,4 @@
 {
-  "version": "1.8.1",
-  "changelog": "- Ana görünüm sırası düzenlendi: Aktif Ticketlar/Aktif Taramalar en üstte, Kimlik Sorgula ortada, Durum en altta\n- Beklet: eski ses bildirimi kaldırıldı, artık sadece Windows bildirimi geliyor\n- AC Çağır: çift gönderim koruması eklendi (aynı kişi için 10sn içinde ikinci istek engelleniyor)\n- Şüpheli aktivite bildirimi artık kişinin Player ID'sini de gösteriyor"
+  "version": "1.8.2",
+  "changelog": "- ZIP dosyasının içinden (çıkarmadan) çalıştırılırsa ayarların kaybolacağını açıklayan bir uyarı eklendi\n- AC Çağır: çağrılan kişi 3 dakika içinde sunucudan çıkarsa ya da banlanırsa haber veriliyor (pop-up ile)\n- Şüpheli aktivite bildirimine tıklayınca artık doğrudan Discord'daki mesaja gidiyor"
 }
