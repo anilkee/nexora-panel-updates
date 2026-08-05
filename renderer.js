@@ -66,6 +66,7 @@ const acCall1xBtn = document.getElementById('acCall1xBtn');
 const acCall2xBtn = document.getElementById('acCall2xBtn');
 const acCall3xBtn = document.getElementById('acCall3xBtn');
 const acCallStatus = document.getElementById('acCallStatus');
+const acCallForceBtn = document.getElementById('acCallForceBtn');
 let currentLookupResult = null;
 
 function addLookupRow(label, value) {
@@ -102,6 +103,7 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     acCallSending = false;
     acCallStatus.style.display = 'none';
     acCallCountRow.style.display = 'none';
+    acCallForceBtn.style.display = 'none';
     if (!result) {
         lookupResult.style.display = 'none';
         lookupEmpty.textContent = 'Kayıt bulunamadı.';
@@ -137,14 +139,19 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
 
 acCallBtn.addEventListener('click', () => {
     acCallBtn.style.display = 'none';
+    acCallForceBtn.style.display = 'none';
+    acCallStatus.style.display = 'none';
     acCallCountRow.style.display = 'flex';
 });
 
 let acCallSending = false;
+let lastAcCallCount = 1;
 
-function runAcCall(count) {
+function runAcCall(count, force) {
     if (!currentLookupResult || acCallSending) return;
     acCallSending = true;
+    lastAcCallCount = count;
+    acCallForceBtn.style.display = 'none';
     acCallCountRow.style.display = 'none';
     acCallStatus.style.display = 'block';
     acCallStatus.style.color = '';
@@ -155,18 +162,30 @@ function runAcCall(count) {
         playerId: currentLookupResult.playerId,
         name: currentLookupResult.name,
         count,
+        force,
     });
 }
 
 acCall1xBtn.addEventListener('click', () => runAcCall(1));
 acCall2xBtn.addEventListener('click', () => runAcCall(2));
 acCall3xBtn.addEventListener('click', () => runAcCall(3));
+acCallForceBtn.addEventListener('click', () => runAcCall(lastAcCallCount, true));
 
 ipcRenderer.on('ac-call-result', (event, result) => {
     acCallSending = false;
+    acCallStatus.style.display = 'block';
+
+    // Başka biri (ya da aynı kişi) bu oyuncuyu son 5 dakikada zaten çağırmış -
+    // gönderme, kullanıcıya sor. "Yine de Gönder" force:true ile tekrar dener.
+    if (result.reason === 'recent-call') {
+        acCallStatus.style.color = 'var(--warn)';
+        acCallStatus.textContent = `⚠️ ${result.message}`;
+        acCallForceBtn.style.display = 'flex';
+        return;
+    }
+
     // Tekrar çağırabilmek için (ör. cevap gelmezse 2x/3x ile tekrar) butonu geri getiriyoruz.
     acCallBtn.style.display = 'flex';
-    acCallStatus.style.display = 'block';
     acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
     acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
 });
