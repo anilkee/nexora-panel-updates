@@ -8,6 +8,16 @@ require('dns').setDefaultResultOrder('ipv4first');
 const CONFIG_ENV_PATH = path.join(__dirname, 'config.env');
 require('dotenv').config({ path: CONFIG_ENV_PATH });
 
+// Bazı kullanıcılarda ayarlar (token/API key) her açılışta sıfırlanıyordu.
+// En olası sebep: uygulama ZIP dosyasının içinden, hiç çıkarılmadan çalıştırılıyor -
+// Windows böyle bir durumda .exe'yi her seferinde geçici bir klasöre (AppData\Local\Temp
+// altında) yeniden açıyor, o klasördeki her şey (config.env dahil) bir sonraki
+// açılışta kayboluyor. __dirname bu türden geçici bir yolun altındaysa true döner.
+function isRunningFromTemporaryLocation() {
+    const dirLower = __dirname.toLowerCase();
+    return dirLower.includes('\\appdata\\local\\temp\\') || dirLower.includes('/appdata/local/temp/');
+}
+
 // Paketlenmiş .exe konsolsuz açıldığı için console.log çıktısı hiçbir yerde görünmüyordu.
 // Artık aynı satırlar debug.log dosyasına da yazılıyor - sorun olursa o dosyaya bakılabilir.
 // Dosya sınırsız büyümesin diye belli bir boyutu geçince eski içerik debug.log.old'a
@@ -79,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.8.1';
+const CURRENT_VERSION = '1.8.2';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -132,12 +142,12 @@ async function checkForUpdates() {
 }
 
 function isConfigComplete() {
-    return Boolean(
-        process.env.USER_TOKEN &&
-        process.env.LOG_CHANNEL_ID &&
-        process.env.CATEGORY_ID &&
-        process.env.NEXORA_API_KEY
-    );
+    const required = { USER_TOKEN: process.env.USER_TOKEN, LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID, CATEGORY_ID: process.env.CATEGORY_ID, NEXORA_API_KEY: process.env.NEXORA_API_KEY };
+    const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
+    if (missing.length) {
+        console.log(`[Kurulum] config.env yolu: ${CONFIG_ENV_PATH} (dosya var mı: ${fs.existsSync(CONFIG_ENV_PATH)}). Eksik alanlar: ${missing.join(', ')}.`);
+    }
+    return missing.length === 0;
 }
 
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
@@ -722,17 +732,59 @@ const AC_ANNOUNCE_CHANNEL_ID = '1470230489456578759';
 const acCallCooldown = new Map(); // discordId -> son gönderim zamanı (ms)
 const AC_CALL_COOLDOWN_MS = 10000;
 
+// Bu, arkadaşların botları da dahil TÜM AC Çağır isteklerini kapsıyor: ayrı bir
+// sunucu/veritabanı kurmadan, AC duyuru kanalının kendisini ortak "kayıt defteri"
+// gibi kullanıyoruz - herkesin botu zaten aynı Discord sunucusuna bağlı.
+const AC_RECENT_CALL_WINDOW_MS = 5 * 60 * 1000;
+
+// AC duyuru kanalının son mesajlarını tarayıp bu Discord ID'nin son 5 dakika
+// içinde (kim tarafından olursa olsun) etiketlenip etiketlenmediğine bakar.
+async function findRecentAcCall(discordId, windowMs = AC_RECENT_CALL_WINDOW_MS) {
+    const channel = client.channels.cache.get(AC_ANNOUNCE_CHANNEL_ID);
+    if (!channel) return null;
+    try {
+        const messages = await channel.messages.fetch({ limit: 50 });
+        const cutoff = Date.now() - windowMs;
+        for (const message of messages.values()) {
+            if (message.createdTimestamp < cutoff) break; // mesajlar yeniden eskiye sıralı, bundan sonrası zaten pencerenin dışında
+            const mentionMatch = message.content.match(/<@!?(\d+)>/);
+            if (mentionMatch && mentionMatch[1] === discordId) {
+                return { at: message.createdTimestamp, author: message.author?.username || null };
+            }
+        }
+    } catch (error) {
+        console.log(`[AC Çağır] Son çağrı kontrolü yapılamadı: ${error.message}`);
+    }
+    return null;
+}
+
 // Kimlik Sorgula sonucundaki kişiyi AC'ye çağırır: hem ac-komut kanalına
 // "/dm-player id:<oyun içi ID> message:<AC mesajı>" gönderir hem de duyuru
 // kanalında kişiyi (Discord ID ile) etiketleyip AC ticket mesajını atar.
 // "count" (1/2/3) kaçıncı çağrı olduğunu duyuru mesajının sonuna "Nx" olarak
 // ekler - panel arayüzünde AC Çağır butonuna basınca 1x/2x/3x seçimi çıkıyor.
 // Discord ID ve license'ın İKİSİ de yoksa (kimlik tam doğrulanmamış demektir)
-// hiçbir şey göndermeden "yetersiz bilgi" hatası döner.
-async function performAcCall({ discord, license, playerId, name, count }) {
+// hiçbir şey göndermeden "yetersiz bilgi" hatası döner. "force" true değilse
+// önce AC duyuru kanalında bu kişi son 5 dakikada geçmiş mi diye bakılır - geçmişse
+// hiçbir şey göndermeden onay isteyen bir sonuç döner (renderer bunu "yine de
+// gönder" butonuyla gösterip force:true ile tekrar çağırıyor).
+async function performAcCall({ discord, license, playerId, name, count, force }) {
     if (!discord || !license) {
         console.log(`[AC Çağır] Yetersiz bilgi (discord: ${discord || 'yok'}, license: ${license || 'yok'}), hiçbir şey gönderilmedi.`);
         return { success: false, reason: 'insufficient', message: 'Discord ID veya License eksik - yetersiz bilgi, AC çağrılmadı.' };
+    }
+
+    if (!force) {
+        const recent = await findRecentAcCall(discord);
+        if (recent) {
+            const minutesAgo = Math.max(1, Math.round((Date.now() - recent.at) / 60000));
+            console.log(`[AC Çağır] ${discord} için ${minutesAgo} dakika önce AC duyuru kanalında etiketleme bulundu, onay bekleniyor.`);
+            return {
+                success: false,
+                reason: 'recent-call',
+                message: `Bu oyuncu ${minutesAgo} dakika önce zaten AC çağrıldı${recent.author ? ` (${recent.author} tarafından)` : ''} - yine de devam etmek istiyor musun?`,
+            };
+        }
     }
 
     const lastCallAt = acCallCooldown.get(discord);
@@ -767,11 +819,59 @@ async function performAcCall({ discord, license, playerId, name, count }) {
         console.log(`[AC Çağır] Duyuru kanalına etiketlendi (${name || discord}, ${callCount}x).`);
         results.push(`duyuru kanalına ${callCount}x olarak etiketlendi`);
 
+        watchForDisconnectionAfterAcCall({ discord, license, name });
+
         return { success: true, message: results.join(', ') + '.' };
     } catch (error) {
         console.log(`[Hata] AC Çağır: ${error.message}`);
         return { success: false, reason: 'error', message: `Gönderilirken hata oluştu: ${error.message}` };
     }
+}
+
+// AC çağrılan kişiyi 3 dakika boyunca connections-webhook'ta CANLI izler (tarama
+// değil, messageCreate event'ine geçici bir dinleyici eklenip süre dolunca ya da
+// eşleşme bulununca kaldırılıyor) - sunucudan çıkarsa (normal ya da ban ile) Windows
+// bildirimi gönderir. Süre içinde hiçbir şey olmazsa sessizce bırakılır.
+const AC_CALL_WATCH_MS = 3 * 60 * 1000;
+
+function watchForDisconnectionAfterAcCall({ discord, license, name }) {
+    if (!discord && !license) return;
+
+    const listener = (message) => {
+        if (message.channel.id !== CONNECTIONS_WEBHOOK_CHANNEL_ID) return;
+        const entry = parseConnectionsWebhookEntry(message.embeds?.[0]);
+        if (!entry || entry.online) return; // sadece ayrılma/reddedilme olayları ilgimizi çekiyor
+        const matches = (license && entry.license === license) || (discord && entry.discord === discord);
+        if (!matches) return;
+
+        clearTimeout(timeoutId);
+        client.removeListener('messageCreate', listener);
+
+        const banned = Boolean(entry.reason && /ban/i.test(entry.reason));
+        const displayName = entry.name || name || discord;
+        console.log(`[AC Çağır] ${displayName} AC çağrıldıktan sonra ${banned ? 'BANLANDI' : 'sunucudan çıktı'} (sebep: ${entry.reason || 'belirtilmedi'}).`);
+
+        // Windows bildirimi kolayca gözden kaçabildiği için (köşede sessizce
+        // görünüp kayboluyor) burada onun yerine gerçek bir pop-up (native dialog)
+        // kullanılıyor - kapatılana kadar ekranda kalır, gözden kaçmaz.
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+        dialog.showMessageBox(mainWindow, {
+            type: banned ? 'warning' : 'info',
+            title: banned ? `🚫 ${displayName} BANLANDI` : `🚪 ${displayName} sunucudan çıktı`,
+            message: banned
+                ? `${displayName}, AC çağrıldıktan sonra banlandı.\nSebep: ${entry.reason}`
+                : `${displayName}, AC çağrıldıktan sonra sunucudan ayrıldı.${entry.reason ? `\nSebep: ${entry.reason}` : ''}`,
+            buttons: ['Tamam']
+        });
+    };
+
+    client.on('messageCreate', listener);
+    const timeoutId = setTimeout(() => {
+        client.removeListener('messageCreate', listener);
+    }, AC_CALL_WATCH_MS);
 }
 
 function performTicketHold(channelId) {
@@ -934,6 +1034,30 @@ const mobileServer = http.createServer(async (req, res) => {
         }
     }
 
+    if (req.method === 'GET' && reqUrl.pathname === '/api/lookup') {
+        if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
+        try {
+            const result = await resolvePlayerIdentity(reqUrl.searchParams.get('query') || '');
+            return sendJson(res, 200, { result });
+        } catch (error) {
+            return sendJson(res, 500, { error: error.message });
+        }
+    }
+
+    if (req.method === 'POST' && reqUrl.pathname === '/api/ac-call') {
+        if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        let target = {};
+        try { target = JSON.parse(body || '{}'); } catch (e) {}
+        try {
+            const result = await performAcCall(target);
+            return sendJson(res, 200, result);
+        } catch (error) {
+            return sendJson(res, 500, { success: false, message: error.message });
+        }
+    }
+
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Bulunamadı' }));
 });
@@ -1067,6 +1191,15 @@ app.on('ready', async () => {
         startApp();
     } else {
         console.log('[Kurulum] config.env eksik, kurulum ekranı gösteriliyor...');
+        if (isRunningFromTemporaryLocation()) {
+            console.log(`[Kurulum] UYARI: Uygulama geçici bir klasörden çalışıyor (${__dirname}) - ayarlar kalıcı olmayabilir.`);
+            await dialog.showMessageBox({
+                type: 'warning',
+                title: 'Geçici Klasörden Çalışıyor',
+                message: 'Nexora Panel şu an geçici bir klasörden çalışıyor gibi görünüyor (muhtemelen ZIP dosyasının içinden, hiç çıkarmadan açıldı).\n\nBu durumda girdiğin ayarlar (Discord token, API anahtarı vb.) her açılışta sıfırlanır - çünkü Windows bu klasörü her seferinde yeniden, geçici olarak oluşturuyor.\n\nÇözüm: "Nexora Panel-win32-x64" klasörünü ZIP dosyasının içinden Masaüstü gibi kalıcı bir klasöre çıkar (klasöre sağ tık → "Tümünü Çıkart") ve programı oradan çalıştır.',
+                buttons: ['Anladım']
+            });
+        }
         showSetupWindow();
     }
 });
@@ -1262,6 +1395,7 @@ function parseConnectionsWebhookEntry(embed) {
     const licenseMatch = blob.match(/"?license:([a-f0-9]+)"?/i);
     const discordMatch = blob.match(/"?discord:(\d+)"?/i);
     const ipMatch = blob.match(/"?ip:([\d.]+)"?/i);
+    const reasonMatch = blob.match(/reason:\s*(.+)/i);
 
     if (!serverIdMatch && !licenseMatch) return null;
 
@@ -1272,6 +1406,9 @@ function parseConnectionsWebhookEntry(embed) {
         license: licenseMatch ? `license:${licenseMatch[1]}` : null,
         discord: discordMatch ? discordMatch[1] : null,
         ip: ipMatch ? ipMatch[1] : null,
+        // "Reason: Exiting" (normal çıkış) ya da "Reason: You have been banned by
+        // FeloxAC for cheating" (ban) - hangisi olduğunu ayırt etmek için kullanılıyor.
+        reason: reasonMatch ? stripDiscordMarkup(reasonMatch[1]) : null,
         eventTitle: title || null,
         // "connection" geçiyor ama "disconnection"/"reject" geçmiyorsa online -
         // tam eşleşme yerine anahtar kelime araması (başlıkta ekstra emoji/boşluk
@@ -1417,15 +1554,20 @@ function recordSuspiciousReport(message) {
     const identifier = extractSuspiciousIdentifier(embed) || message.author?.id || message.id;
     const displayName = findEmbedField(embed, /^name$/i) || message.author?.username || 'Bilinmeyen';
     const playerId = findEmbedField(embed, /player\s*id/i);
+    // "discord://" özel protokolü - https://discord.com/... linki tarayıcıda açılıp
+    // oradan "Discord'ta Aç" ile yönlendirme gerektiriyordu, bu ise Discord kurulu ise
+    // doğrudan uygulamayı (masaüstü istemcisini) açıp o mesaja gidiyor, tarayıcı hiç
+    // araya girmiyor.
+    const messageUrl = message.guild ? `discord://-/channels/${message.guild.id}/${message.channel.id}/${message.id}` : null;
 
     recentSuspiciousReports.push(identifier);
     if (recentSuspiciousReports.length > 50) recentSuspiciousReports.shift();
 
     const occurrences = recentSuspiciousReports.filter((id) => id === identifier).length;
-    return { embed, displayName, playerId, occurrences };
+    return { embed, displayName, playerId, occurrences, messageUrl };
 }
 
-function showSuspiciousNotification({ embed, displayName, playerId, occurrences }) {
+function showSuspiciousNotification({ embed, displayName, playerId, occurrences, messageUrl }) {
     if (!suspiciousNotifyEnabled || !Notification.isSupported()) return;
 
     const baseTitle = stripDiscordMarkup(embed?.title) || 'Şüpheli Aktivite';
@@ -1438,7 +1580,9 @@ function showSuspiciousNotification({ embed, displayName, playerId, occurrences 
             : `${whoText} için yeni bir hile bildirimi geldi.`,
     });
     notification.on('click', () => {
-        if (mainWindow) {
+        if (messageUrl) {
+            shell.openExternal(messageUrl);
+        } else if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
         }
