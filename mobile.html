@@ -159,6 +159,27 @@
         .ticket-btn.sonuc-btn.sonuc-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
         .ticket-btn.sonuc-btn.sonuc-neutral { color: var(--accent); border-color: var(--accent-dim); }
 
+        .field-label { display: block; font-size: 11px; font-weight: 600; margin-bottom: 6px; color: var(--text-lo); }
+        .lookup-input-row { display: flex; gap: 8px; }
+        .lookup-input-row input[type="text"] {
+            flex: 1 1 auto; min-width: 0; padding: 11px 10px; border-radius: calc(var(--radius-card) - 2px);
+            background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c); font-size: 14px;
+        }
+        .primary-btn {
+            background: var(--accent); color: var(--bg-void); font-weight: 700; border: none;
+            border-radius: calc(var(--radius-card) - 2px); cursor: pointer; font-size: 13px;
+            display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px;
+        }
+        .primary-btn:active { opacity: .85; }
+        .lookup-search-btn { flex: 0 0 46px; padding: 0; }
+        .lookup-hint { font-size: 11px; color: var(--text-lo); margin: 8px 0 0; line-height: 1.5; }
+        .lookup-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 7px 0; border-bottom: 1px solid var(--border-c); }
+        .lookup-row:last-child { border-bottom: none; }
+        .lookup-row span:first-child { color: var(--text-lo); flex-shrink: 0; width: 88px; }
+        .lookup-row span:last-child { color: var(--text-hi); font-weight: 600; text-align: right; flex: 1; word-break: break-all; }
+        .ac-count-row { display: flex; gap: 8px; margin-top: 10px; }
+        .ac-count-row .primary-btn { flex: 1; }
+
         .status-pill {
             display: flex; align-items: center; justify-content: center; gap: 6px;
             background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
@@ -201,6 +222,26 @@
 
         <div id="ticketsList"></div>
 
+        <div class="card" id="lookupCard">
+            <h2><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</h2>
+            <label class="field-label">Oyun İçi ID, İsim, Steam, Discord veya License</label>
+            <div class="lookup-input-row">
+                <input type="text" id="lookupInput" placeholder="Örn: 3852">
+                <button class="primary-btn lookup-search-btn" id="lookupBtn"><svg class="icon"><use href="#icon-search"></use></svg></button>
+            </div>
+            <p class="lookup-hint">Player ID, Discord ID, isim veya License ile arar - önce yerel kayıt. Player ID ile kill-log'da license bulunup connections-webhook'ta doğrulanır; Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
+            <div id="lookupResult" style="display: none; margin-top: 8px;"></div>
+            <button class="primary-btn" id="acCallBtn" style="display: none; width: 100%; margin-top: 12px;"><svg class="icon"><use href="#icon-flag"></use></svg><span>AC Çağır</span></button>
+            <div class="ac-count-row" id="acCallCountRow" style="display: none;">
+                <button class="primary-btn" id="acCall1xBtn">1x</button>
+                <button class="primary-btn" id="acCall2xBtn">2x</button>
+                <button class="primary-btn" id="acCall3xBtn">3x</button>
+            </div>
+            <p class="lookup-hint" id="acCallStatus" style="display: none;"></p>
+            <button class="primary-btn" id="acCallForceBtn" style="display: none; width: 100%; margin-top: 8px; background: var(--warn);"><span>Yine de Gönder</span></button>
+            <p class="lookup-hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
+        </div>
+
         <div class="card">
             <h2><svg class="icon"><use href="#icon-palette"></use></svg>Görünüm</h2>
             <div class="theme-picker">
@@ -226,6 +267,7 @@
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
+            <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M20 20l-5.5-5.5"/></symbol>
         </defs>
     </svg>
 
@@ -532,6 +574,149 @@
 
         loadTickets();
         setInterval(loadTickets, 4000);
+
+        // --- KİMLİK SORGULA ---
+        const lookupInput = document.getElementById('lookupInput');
+        const lookupBtn = document.getElementById('lookupBtn');
+        const lookupResult = document.getElementById('lookupResult');
+        const lookupEmpty = document.getElementById('lookupEmpty');
+        const acCallBtn = document.getElementById('acCallBtn');
+        const acCallCountRow = document.getElementById('acCallCountRow');
+        const acCall1xBtn = document.getElementById('acCall1xBtn');
+        const acCall2xBtn = document.getElementById('acCall2xBtn');
+        const acCall3xBtn = document.getElementById('acCall3xBtn');
+        const acCallStatus = document.getElementById('acCallStatus');
+        const acCallForceBtn = document.getElementById('acCallForceBtn');
+        let currentLookupResult = null;
+        let acCallSending = false;
+        let lastAcCallCount = 1;
+
+        function addLookupRow(label, value) {
+            if (!value) return;
+            const row = document.createElement('div');
+            row.className = 'lookup-row';
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = label;
+            const valueSpan = document.createElement('span');
+            valueSpan.textContent = value;
+            row.append(labelSpan, valueSpan);
+            lookupResult.appendChild(row);
+        }
+
+        function showLookupResult(result) {
+            lookupResult.innerHTML = '';
+            currentLookupResult = result;
+            acCallSending = false;
+            acCallStatus.style.display = 'none';
+            acCallCountRow.style.display = 'none';
+            acCallForceBtn.style.display = 'none';
+            if (!result) {
+                lookupResult.style.display = 'none';
+                lookupEmpty.textContent = 'Kayıt bulunamadı.';
+                lookupEmpty.style.display = 'block';
+                acCallBtn.style.display = 'none';
+                return;
+            }
+            lookupEmpty.style.display = 'none';
+            if (result.staleNote) {
+                const warning = document.createElement('p');
+                warning.className = 'lookup-hint';
+                warning.style.color = 'var(--warn)';
+                warning.textContent = `⚠️ ${result.staleNote}`;
+                lookupResult.appendChild(warning);
+            }
+            addLookupRow('Oyun İçi ID', result.playerId);
+            addLookupRow('İsim', result.name);
+            addLookupRow('Steam', result.steam);
+            addLookupRow('Discord', result.discord);
+            addLookupRow('License', result.license);
+            addLookupRow('IP', result.ip);
+            addLookupRow('Log ID', result.logId);
+            addLookupRow('Rapor Türü', result.title);
+            addLookupRow('Rapor Sayısı', String(result.reportCount || 1));
+            if (result.lastSeenAt) {
+                addLookupRow('Son Görülme', new Date(result.lastSeenAt).toLocaleString('tr-TR'));
+            }
+            lookupResult.style.display = 'block';
+            acCallBtn.style.display = 'flex';
+        }
+
+        async function runLookup() {
+            const query = lookupInput.value.trim();
+            if (!query || !token) return;
+            lookupResult.style.display = 'none';
+            acCallBtn.style.display = 'none';
+            acCallCountRow.style.display = 'none';
+            acCallStatus.style.display = 'none';
+            lookupEmpty.textContent = 'Aranıyor... (yerel kayıtta yoksa kanal geçmişi taranıyor, birkaç saniye sürebilir)';
+            lookupEmpty.style.display = 'block';
+            lookupBtn.disabled = true;
+            try {
+                const res = await fetch(apiUrl(`/api/lookup?query=${encodeURIComponent(query)}`));
+                const data = await res.json();
+                showLookupResult(data.result);
+            } catch (e) {
+                lookupEmpty.textContent = 'Sunucuya ulaşılamadı.';
+                lookupEmpty.style.display = 'block';
+            }
+            lookupBtn.disabled = false;
+        }
+
+        lookupBtn.addEventListener('click', runLookup);
+        lookupInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runLookup(); });
+
+        acCallBtn.addEventListener('click', () => {
+            acCallBtn.style.display = 'none';
+            acCallForceBtn.style.display = 'none';
+            acCallStatus.style.display = 'none';
+            acCallCountRow.style.display = 'flex';
+        });
+
+        async function runAcCall(count, force) {
+            if (!currentLookupResult || acCallSending) return;
+            acCallSending = true;
+            lastAcCallCount = count;
+            acCallForceBtn.style.display = 'none';
+            acCallCountRow.style.display = 'none';
+            acCallStatus.style.display = 'block';
+            acCallStatus.style.color = '';
+            acCallStatus.textContent = 'Gönderiliyor...';
+            try {
+                const res = await fetch(apiUrl('/api/ac-call'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        discord: currentLookupResult.discord,
+                        license: currentLookupResult.license,
+                        playerId: currentLookupResult.playerId,
+                        name: currentLookupResult.name,
+                        count,
+                        force,
+                    }),
+                });
+                const result = await res.json();
+                acCallSending = false;
+                if (result.reason === 'recent-call') {
+                    acCallStatus.style.color = 'var(--warn)';
+                    acCallStatus.textContent = `⚠️ ${result.message}`;
+                    acCallForceBtn.style.display = 'flex';
+                    return;
+                }
+                acCallBtn.style.display = 'flex';
+                acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
+                acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
+            } catch (e) {
+                acCallSending = false;
+                acCallBtn.style.display = 'flex';
+                acCallStatus.style.color = 'var(--warn)';
+                acCallStatus.textContent = '⚠️ Sunucuya ulaşılamadı.';
+            }
+        }
+
+        acCall1xBtn.addEventListener('click', () => runAcCall(1));
+        acCall2xBtn.addEventListener('click', () => runAcCall(2));
+        acCall3xBtn.addEventListener('click', () => runAcCall(3));
+        acCallForceBtn.addEventListener('click', () => runAcCall(lastAcCallCount, true));
     </script>
 </body>
 </html>
