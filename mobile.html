@@ -239,6 +239,18 @@
             </div>
             <p class="lookup-hint" id="acCallStatus" style="display: none;"></p>
             <button class="primary-btn" id="acCallForceBtn" style="display: none; width: 100%; margin-top: 8px; background: var(--warn);"><span>Yine de Gönder</span></button>
+
+            <div class="ac-count-row" id="fgBanRow" style="display: none;">
+                <button class="primary-btn" id="fgBanBtn" style="background: var(--danger);"><svg class="icon"><use href="#icon-ban"></use></svg><span>fg ban</span></button>
+                <button class="primary-btn" id="fgOfflineBanBtn" style="background: var(--danger);"><svg class="icon"><use href="#icon-ban"></use></svg><span>fg offline-ban</span></button>
+            </div>
+            <div class="lookup-input-row" id="fgBanReasonRow" style="display: none; margin-top: 10px;">
+                <input type="text" id="fgBanReasonInput" placeholder="Sebep (örn: 3.p -dilber)">
+                <button class="primary-btn lookup-search-btn" id="fgBanSendBtn"><svg class="icon"><use href="#icon-check"></use></svg></button>
+                <button class="primary-btn lookup-search-btn" id="fgBanCancelBtn" style="background: var(--border-c);"><svg class="icon"><use href="#icon-x"></use></svg></button>
+            </div>
+            <p class="lookup-hint" id="fgBanStatus" style="display: none;"></p>
+
             <p class="lookup-hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
         </div>
 
@@ -587,19 +599,59 @@
         const acCall3xBtn = document.getElementById('acCall3xBtn');
         const acCallStatus = document.getElementById('acCallStatus');
         const acCallForceBtn = document.getElementById('acCallForceBtn');
+        const fgBanRow = document.getElementById('fgBanRow');
+        const fgBanBtn = document.getElementById('fgBanBtn');
+        const fgOfflineBanBtn = document.getElementById('fgOfflineBanBtn');
+        const fgBanReasonRow = document.getElementById('fgBanReasonRow');
+        const fgBanReasonInput = document.getElementById('fgBanReasonInput');
+        const fgBanSendBtn = document.getElementById('fgBanSendBtn');
+        const fgBanCancelBtn = document.getElementById('fgBanCancelBtn');
+        const fgBanStatus = document.getElementById('fgBanStatus');
         let currentLookupResult = null;
         let acCallSending = false;
         let lastAcCallCount = 1;
+        let fgBanSending = false;
+        let pendingFgBanType = null;
+
+        // Telefon tarayıcısı LAN IP'sinden http:// ile açıldığı için (localhost/https
+        // değil) navigator.clipboard güvenli bağlam sayılmayıp çalışmayabiliyor -
+        // önce onu deniyoruz, olmazsa eski execCommand yöntemine düşüyoruz.
+        function copyToClipboard(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(() => fallbackCopyToClipboard(text));
+            } else {
+                fallbackCopyToClipboard(text);
+            }
+        }
+
+        function fallbackCopyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(textarea);
+        }
 
         function addLookupRow(label, value) {
             if (!value) return;
             const row = document.createElement('div');
             row.className = 'lookup-row';
+            row.style.cursor = 'pointer';
             const labelSpan = document.createElement('span');
             labelSpan.textContent = label;
             const valueSpan = document.createElement('span');
             valueSpan.textContent = value;
             row.append(labelSpan, valueSpan);
+            row.addEventListener('click', () => {
+                copyToClipboard(value);
+                const original = valueSpan.textContent;
+                valueSpan.textContent = 'Kopyalandı!';
+                setTimeout(() => { valueSpan.textContent = original; }, 1000);
+            });
             lookupResult.appendChild(row);
         }
 
@@ -610,6 +662,11 @@
             acCallStatus.style.display = 'none';
             acCallCountRow.style.display = 'none';
             acCallForceBtn.style.display = 'none';
+            fgBanSending = false;
+            pendingFgBanType = null;
+            fgBanRow.style.display = 'none';
+            fgBanReasonRow.style.display = 'none';
+            fgBanStatus.style.display = 'none';
             if (!result) {
                 lookupResult.style.display = 'none';
                 lookupEmpty.textContent = 'Kayıt bulunamadı.';
@@ -639,6 +696,10 @@
             }
             lookupResult.style.display = 'block';
             acCallBtn.style.display = 'flex';
+
+            fgBanBtn.style.display = result.playerId ? 'flex' : 'none';
+            fgOfflineBanBtn.style.display = 'flex';
+            fgBanRow.style.display = 'flex';
         }
 
         async function runLookup() {
@@ -717,6 +778,66 @@
         acCall2xBtn.addEventListener('click', () => runAcCall(2));
         acCall3xBtn.addEventListener('click', () => runAcCall(3));
         acCallForceBtn.addEventListener('click', () => runAcCall(lastAcCallCount, true));
+
+        // --- KİMLİK SORGULA: "fg ban" / "fg offline-ban" ---
+        function openFgBanReason(type) {
+            pendingFgBanType = type;
+            fgBanRow.style.display = 'none';
+            fgBanStatus.style.display = 'none';
+            fgBanReasonRow.style.display = 'flex';
+            fgBanReasonInput.value = '';
+            fgBanReasonInput.focus();
+        }
+
+        fgBanBtn.addEventListener('click', () => openFgBanReason('ban'));
+        fgOfflineBanBtn.addEventListener('click', () => openFgBanReason('offline-ban'));
+
+        fgBanCancelBtn.addEventListener('click', () => {
+            fgBanReasonRow.style.display = 'none';
+            fgBanRow.style.display = 'flex';
+            pendingFgBanType = null;
+        });
+
+        async function submitFgBan() {
+            if (!currentLookupResult || fgBanSending || !pendingFgBanType) return;
+            const reason = fgBanReasonInput.value.trim();
+            if (!reason) {
+                fgBanReasonInput.focus();
+                return;
+            }
+            fgBanSending = true;
+            fgBanReasonRow.style.display = 'none';
+            fgBanStatus.style.display = 'block';
+            fgBanStatus.style.color = '';
+            fgBanStatus.textContent = 'Gönderiliyor...';
+            try {
+                const res = await fetch(apiUrl('/api/lookup-fg-ban'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: pendingFgBanType,
+                        playerId: currentLookupResult.playerId,
+                        license: currentLookupResult.license,
+                        reason,
+                    }),
+                });
+                const result = await res.json();
+                fgBanSending = false;
+                pendingFgBanType = null;
+                fgBanRow.style.display = 'flex';
+                fgBanStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
+                fgBanStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
+            } catch (e) {
+                fgBanSending = false;
+                pendingFgBanType = null;
+                fgBanRow.style.display = 'flex';
+                fgBanStatus.style.color = 'var(--warn)';
+                fgBanStatus.textContent = '⚠️ Sunucuya ulaşılamadı.';
+            }
+        }
+
+        fgBanSendBtn.addEventListener('click', submitFgBan);
+        fgBanReasonInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitFgBan(); });
     </script>
 </body>
 </html>
