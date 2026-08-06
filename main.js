@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.8.2';
+const CURRENT_VERSION = '1.9.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -218,6 +218,10 @@ let acTicketMessage = process.env.AC_TICKET_MESSAGE || DEFAULT_AC_TICKET_MESSAGE
 // AÇIK - kapatılırsa config.env'e "false" olarak yazılır (bkz. saveSuspiciousNotifyToConfig).
 let suspiciousNotifyEnabled = process.env.SUSPICIOUS_NOTIFY_ENABLED !== 'false';
 
+// Windows açılışında otomatik başlatma. Varsayılan AÇIK - bu güncellemeyi alan
+// herkeste otomatik devreye girsin diye (kapatılırsa config.env'e "false" yazılır).
+let openAtLoginEnabled = process.env.OPEN_AT_LOGIN !== 'false';
+
 // config.env satırı üretir - değer içinde satır sonu/tırnak olsa da güvenle saklanır.
 function formatConfigLine(key, value) {
     const escaped = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
@@ -310,6 +314,15 @@ function saveAcTicketMessageToConfig(text) {
     acTicketMessage = text || DEFAULT_AC_TICKET_MESSAGE;
     saveConfigValue('AC_TICKET_MESSAGE', text);
     console.log('[AC Ticket Mesajı] Mesaj kaydedildi.');
+}
+
+// Windows'un kendi "başlangıçta çalıştır" mekanizmasını (kayıt defterine kısayol
+// ekleme) kullanıyor - elle registry/shortcut uğraşmaya gerek yok.
+function saveOpenAtLoginToConfig(status) {
+    openAtLoginEnabled = status;
+    saveConfigValue('OPEN_AT_LOGIN', status ? 'true' : 'false');
+    app.setLoginItemSettings({ openAtLogin: status });
+    console.log(`[Ayar] Windows açılışında otomatik başlatma: ${status ? 'AÇIK' : 'KAPALI'}`);
 }
 const activeTickets = new Set();
 const heldTickets = new Set();       // beklemeye alınmış ticket kanal ID'leri
@@ -470,6 +483,14 @@ ipcMain.on('request-suspicious-notify-status', (event) => {
     if (mainWindow) mainWindow.webContents.send('suspicious-notify-status', suspiciousNotifyEnabled);
 });
 
+ipcMain.on('toggle-open-at-login', (event, status) => {
+    saveOpenAtLoginToConfig(status);
+});
+
+ipcMain.on('request-open-at-login-status', (event) => {
+    if (mainWindow) mainWindow.webContents.send('open-at-login-status', openAtLoginEnabled);
+});
+
 ipcMain.on('lookup-player', async (event, query) => {
     const result = await resolvePlayerIdentity(query);
     if (mainWindow) mainWindow.webContents.send('lookup-player-result', { query, result });
@@ -478,6 +499,11 @@ ipcMain.on('lookup-player', async (event, query) => {
 ipcMain.on('ac-call', async (event, target) => {
     const result = await performAcCall(target || {});
     if (mainWindow) mainWindow.webContents.send('ac-call-result', result);
+});
+
+ipcMain.on('lookup-fg-ban', async (event, payload) => {
+    const result = await performLookupFgBan(payload || {});
+    if (mainWindow) mainWindow.webContents.send('lookup-fg-ban-result', result);
 });
 
 // --- AKTİF TARAMA / İPTAL SİSTEMİ ---
@@ -645,7 +671,10 @@ async function performTicketBan(channelId, reason) {
         return;
     }
 
-    console.log(`[Panel] ${channel.name}: ban sebebi kaydedildi (sebep: ${safeReason}), ticket kanalına mesaj atılmadı.`);
+    // Müşteri sadece sabit ban mesajını görüyor - yazılan sebep ona gitmiyor,
+    // sadece aşağıdaki log güncellemesine düşüyor.
+    await channel.send(banMessage);
+    console.log(`[Panel] ${channel.name}: ban mesajı gönderildi (sebep sadece log'a düştü: ${safeReason}).`);
 
     const logMsg = channelLastLogMessage.get(channelId);
     if (logMsg) {
@@ -874,6 +903,42 @@ function watchForDisconnectionAfterAcCall({ discord, license, name }) {
     }, AC_CALL_WATCH_MS);
 }
 
+// Kimlik Sorgula sonucundan doğrudan "/fg ban" ya da "/fg offline-ban" gönderir -
+// AC Çağır'la aynı kanala (ac-komut, AC_KOMUT_CHANNEL_ID). "fg ban" oyun içi
+// Player ID ister (kişi şu an oyunda değilse/ID bilinmiyorsa kullanılamaz),
+// "fg offline-ban" license ister (Kimlik Sorgula'nın zaten zorunlu tuttuğu alan,
+// bu yüzden pratikte her zaman kullanılabilir).
+async function performLookupFgBan({ type, playerId, license, reason }) {
+    const safeReason = String(reason || '').trim();
+    if (!safeReason) {
+        return { success: false, message: 'Sebep boş bırakılamaz.' };
+    }
+    if (type === 'ban' && !playerId) {
+        return { success: false, message: 'Oyun içi ID bilinmiyor - "/fg ban" için kişi şu an oyunda olmalı.' };
+    }
+    if (type === 'offline-ban' && !license) {
+        return { success: false, message: 'License bilinmiyor - "/fg offline-ban" gönderilemedi.' };
+    }
+
+    try {
+        const komutChannel = client.channels.cache.get(AC_KOMUT_CHANNEL_ID);
+        if (!komutChannel) throw new Error(`ac-komut kanalı bulunamadı (${AC_KOMUT_CHANNEL_ID})`);
+
+        if (type === 'ban') {
+            await komutChannel.sendSlash(FG_BOT_ID, 'fg ban', playerId, safeReason);
+            console.log(`[Kimlik Sorgula] /fg ban id:${playerId} gönderildi (sebep: ${safeReason}).`);
+            return { success: true, message: `/fg ban gönderildi (ID: ${playerId}).` };
+        } else {
+            await komutChannel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
+            console.log(`[Kimlik Sorgula] /fg offline-ban ${license} gönderildi (sebep: ${safeReason}).`);
+            return { success: true, message: `/fg offline-ban gönderildi (${license}).` };
+        }
+    } catch (error) {
+        console.log(`[Hata] Kimlik Sorgula /fg komutu: ${error.message}`);
+        return { success: false, message: `Gönderilirken hata oluştu: ${error.message}` };
+    }
+}
+
 function performTicketHold(channelId) {
     if (heldTickets.has(channelId)) {
         heldTickets.delete(channelId);
@@ -1058,6 +1123,20 @@ const mobileServer = http.createServer(async (req, res) => {
         }
     }
 
+    if (req.method === 'POST' && reqUrl.pathname === '/api/lookup-fg-ban') {
+        if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        let payload = {};
+        try { payload = JSON.parse(body || '{}'); } catch (e) {}
+        try {
+            const result = await performLookupFgBan(payload);
+            return sendJson(res, 200, result);
+        } catch (error) {
+            return sendJson(res, 500, { success: false, message: error.message });
+        }
+    }
+
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Bulunamadı' }));
 });
@@ -1065,6 +1144,9 @@ const mobileServer = http.createServer(async (req, res) => {
 function startApp() {
     console.log("[Sistem] Nexora Kontrol Merkezi başlatılıyor...");
     validateNexoraApiKey();
+    // Windows'taki gerçek "başlangıçta çalıştır" kaydını her açılışta config.env'deki
+    // tercihle senkron tutuyoruz (exe taşınmış/yeniden paketlenmiş olsa bile).
+    app.setLoginItemSettings({ openAtLogin: openAtLoginEnabled });
     mainWindow = new BrowserWindow({
         width: 460,
         height: 700,
@@ -1086,7 +1168,24 @@ function startApp() {
         broadcastSystemStatus();
     });
 
-    console.log('[Bağlantı] Discord\'a giriş deneniyor...');
+    attemptLogin();
+}
+
+// --- OTOMATİK YENİDEN BAĞLANMA ---
+// Kütüphane geçici ağ kopmalarını (wifi dalgalanması vb.) zaten kendi içinde
+// sürekli deniyor (5sn arayla, WebSocketManager.reconnect) - burada elle bir şey
+// yapmamıza gerek yok. Bizim eklediğimiz iki durum: (1) İLK giriş (client.login)
+// zaman aşımına uğrarsa/başarısız olursa kütüphane hiç denemiyor, o yüzden kendi
+// yeniden deneme döngümüzü kuruyoruz. (2) Oturum tamamen geçersiz kılınırsa
+// ("invalidated" - genelde token değişmiş/oturum sonlandırılmış demek) kütüphane
+// shard'ları yok edip tamamen duruyor, yeni bir client.login() gerekiyor.
+const RECONNECT_DELAY_MS = 15000;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let reconnectAttempts = 0;
+let hasConnectedBefore = false;
+
+function attemptLogin() {
+    console.log(`[Bağlantı] Discord'a giriş deneniyor... (deneme ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS + 1})`);
     const LOGIN_TIMEOUT_MS = 25000;
     const loginTimeout = new Promise((_, reject) => {
         setTimeout(() => reject(new Error(`Giriş ${LOGIN_TIMEOUT_MS / 1000} saniye içinde tamamlanmadı. Muhtemelen güvenlik duvarı/antivirüs Discord bağlantısını (WebSocket) engelliyor - dosya dışlaması bunu kapsamaz, ayrıca Windows Güvenlik Duvarı izni de gerekiyor.`)), LOGIN_TIMEOUT_MS);
@@ -1095,14 +1194,41 @@ function startApp() {
         console.log(`[Hata] Discord girişi başarısız: ${error.message}`);
         discordStatus = 'hata';
         broadcastSystemStatus();
-        dialog.showMessageBox(mainWindow, {
-            type: 'error',
-            title: 'Discord Girişi Başarısız',
-            message: `Discord'a bağlanılamadı:\n${error.message}`,
-            buttons: ['Tamam']
-        });
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.log('[Bağlantı] Maksimum yeniden bağlanma denemesi aşıldı, otomatik deneme durduruldu.');
+            if (mainWindow) {
+                dialog.showMessageBox(mainWindow, {
+                    type: 'error',
+                    title: 'Discord Bağlantısı Kurulamadı',
+                    message: `${MAX_RECONNECT_ATTEMPTS} deneme sonunda Discord'a bağlanılamadı:\n${error.message}\n\nToken'ın geçerli olduğundan ve internet bağlantından emin olup programı yeniden başlat.`,
+                    buttons: ['Tamam']
+                });
+            }
+            return;
+        }
+
+        reconnectAttempts++;
+        console.log(`[Bağlantı] ${RECONNECT_DELAY_MS / 1000} saniye sonra yeniden denenecek.`);
+        setTimeout(attemptLogin, RECONNECT_DELAY_MS);
     });
 }
+
+client.on('invalidated', () => {
+    console.log('[Bağlantı] Discord oturumu geçersiz kılındı (invalidated) - kütüphane kendiliğinden yeniden bağlanmayı bırakır, elle yeniden giriş deneniyor.');
+    discordStatus = 'hata';
+    broadcastSystemStatus();
+    if (mainWindow) {
+        dialog.showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'Discord Bağlantısı Koptu',
+            message: 'Discord oturumu sıfırlandı, otomatik olarak yeniden bağlanılmaya çalışılıyor...',
+            buttons: ['Tamam']
+        });
+    }
+    reconnectAttempts = 0; // yeni bir kopma döngüsü, sayaç sıfırlansın
+    setTimeout(attemptLogin, 3000);
+});
 
 client.on('error', (error) => {
     console.log(`[Hata] Discord bağlantı hatası: ${error.message}`);
@@ -1615,10 +1741,16 @@ async function catchUpSuspiciousChannel() {
 }
 
 client.on('ready', () => {
-    console.log(`[Bağlantı] Giriş yapıldı: ${client.user.tag}`);
-    console.log(`[Ayar] CATEGORY_ID=${CATEGORY_ID}, LOG_CHANNEL_ID=${LOG_CHANNEL_ID}`);
+    if (hasConnectedBefore) {
+        console.log(`[Bağlantı] Yeniden bağlanıldı: ${client.user.tag}`);
+    } else {
+        console.log(`[Bağlantı] Giriş yapıldı: ${client.user.tag}`);
+        console.log(`[Ayar] CATEGORY_ID=${CATEGORY_ID}, LOG_CHANNEL_ID=${LOG_CHANNEL_ID}`);
+    }
     discordStatus = 'bağlı';
     broadcastSystemStatus();
+    reconnectAttempts = 0; // başarılı giriş - deneme sayacı sıfırlanır
+    hasConnectedBefore = true;
     catchUpSuspiciousChannel();
     refreshMyTickets();
 });
