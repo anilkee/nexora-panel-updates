@@ -347,6 +347,18 @@
                 </div>
                 <p class="hint" id="acCallStatus" style="display: none;"></p>
                 <button class="primary" id="acCallForceBtn" style="display: none; margin-top: 8px; background: var(--warn);"><span class="label">Yine de Gönder</span></button>
+
+                <div id="fgBanRow" style="display: none; gap: 8px; margin-top: 10px;">
+                    <button class="primary" id="fgBanBtn" style="flex: 1; background: var(--danger);"><svg class="icon"><use href="#icon-ban"></use></svg><span class="label">fg ban</span></button>
+                    <button class="primary" id="fgOfflineBanBtn" style="flex: 1; background: var(--danger);"><svg class="icon"><use href="#icon-ban"></use></svg><span class="label">fg offline-ban</span></button>
+                </div>
+                <div id="fgBanReasonRow" style="display: none; gap: 8px; margin-top: 10px;">
+                    <input type="text" id="fgBanReasonInput" placeholder="Sebep (örn: 3.p -dilber)" style="flex: 1 1 auto; min-width: 0;">
+                    <button class="primary" id="fgBanSendBtn" style="width: 40px; flex: 0 0 40px; padding: 0;"><svg class="icon"><use href="#icon-check"></use></svg></button>
+                    <button class="primary" id="fgBanCancelBtn" style="width: 40px; flex: 0 0 40px; padding: 0; background: var(--border-c);"><svg class="icon"><use href="#icon-x"></use></svg></button>
+                </div>
+                <p class="hint" id="fgBanStatus" style="display: none;"></p>
+
                 <p class="hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
             </div>
 
@@ -372,6 +384,17 @@
                     <button class="theme-btn" data-theme="a"><span class="swatch swatch-a"></span>Osiloskop</button>
                     <button class="theme-btn" data-theme="b"><span class="swatch swatch-b"></span>Nöbet Masası</button>
                     <button class="theme-btn" data-theme="c"><span class="swatch swatch-c"></span>Kristal Kalkan</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-power"></use></svg>Başlangıç</h2>
+                <div class="toggle-row">
+                    <span>Windows açılışında otomatik başlat</span>
+                    <label class="switch">
+                        <input type="checkbox" id="openAtLoginToggle">
+                        <span class="slider-toggle"></span>
+                    </label>
                 </div>
             </div>
 
@@ -534,6 +557,7 @@
             <symbol id="icon-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
             <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l2 2M14 9l2 2"/></symbol>
             <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M20 20l-5.5-5.5"/></symbol>
+            <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.5 6.5a8 8 0 1 0 11 0"/></symbol>
         </defs>
     </svg>
 
