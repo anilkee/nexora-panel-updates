@@ -67,17 +67,35 @@ const acCall2xBtn = document.getElementById('acCall2xBtn');
 const acCall3xBtn = document.getElementById('acCall3xBtn');
 const acCallStatus = document.getElementById('acCallStatus');
 const acCallForceBtn = document.getElementById('acCallForceBtn');
+const fgBanRow = document.getElementById('fgBanRow');
+const fgBanBtn = document.getElementById('fgBanBtn');
+const fgOfflineBanBtn = document.getElementById('fgOfflineBanBtn');
+const fgBanReasonRow = document.getElementById('fgBanReasonRow');
+const fgBanReasonInput = document.getElementById('fgBanReasonInput');
+const fgBanSendBtn = document.getElementById('fgBanSendBtn');
+const fgBanCancelBtn = document.getElementById('fgBanCancelBtn');
+const fgBanStatus = document.getElementById('fgBanStatus');
 let currentLookupResult = null;
 
 function addLookupRow(label, value) {
     if (!value) return;
     const row = document.createElement('div');
     row.className = 'lookup-row';
+    row.style.cursor = 'pointer';
+    row.title = 'Kopyalamak için tıkla';
     const labelSpan = document.createElement('span');
     labelSpan.textContent = label;
     const valueSpan = document.createElement('span');
     valueSpan.textContent = value;
     row.append(labelSpan, valueSpan);
+    row.addEventListener('click', () => {
+        clipboard.writeText(value);
+        const original = valueSpan.textContent;
+        valueSpan.textContent = 'Kopyalandı!';
+        setTimeout(() => {
+            valueSpan.textContent = original;
+        }, 1000);
+    });
     lookupResult.appendChild(row);
 }
 
@@ -104,6 +122,11 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     acCallStatus.style.display = 'none';
     acCallCountRow.style.display = 'none';
     acCallForceBtn.style.display = 'none';
+    fgBanSending = false;
+    pendingFgBanType = null;
+    fgBanRow.style.display = 'none';
+    fgBanReasonRow.style.display = 'none';
+    fgBanStatus.style.display = 'none';
     if (!result) {
         lookupResult.style.display = 'none';
         lookupEmpty.textContent = 'Kayıt bulunamadı.';
@@ -135,6 +158,12 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     acCallBtn.disabled = false;
     setButtonLabel(acCallBtn, 'AC Çağır');
     acCallBtn.style.display = 'flex';
+
+    // "fg ban" oyun içi ID ister - kişi online değilse/ID bilinmiyorsa sadece
+    // "fg offline-ban" (license ile) gösteriliyor.
+    fgBanBtn.style.display = result.playerId ? 'flex' : 'none';
+    fgOfflineBanBtn.style.display = 'flex';
+    fgBanRow.style.display = 'flex';
 });
 
 acCallBtn.addEventListener('click', () => {
@@ -188,6 +217,62 @@ ipcRenderer.on('ac-call-result', (event, result) => {
     acCallBtn.style.display = 'flex';
     acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
     acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
+});
+
+// --- KİMLİK SORGULA: "fg ban" / "fg offline-ban" ---
+let fgBanSending = false;
+let pendingFgBanType = null;
+
+function openFgBanReason(type) {
+    pendingFgBanType = type;
+    fgBanRow.style.display = 'none';
+    fgBanStatus.style.display = 'none';
+    fgBanReasonRow.style.display = 'flex';
+    fgBanReasonInput.value = '';
+    fgBanReasonInput.focus();
+}
+
+fgBanBtn.addEventListener('click', () => openFgBanReason('ban'));
+fgOfflineBanBtn.addEventListener('click', () => openFgBanReason('offline-ban'));
+
+fgBanCancelBtn.addEventListener('click', () => {
+    fgBanReasonRow.style.display = 'none';
+    fgBanRow.style.display = 'flex';
+    pendingFgBanType = null;
+});
+
+function submitFgBan() {
+    if (!currentLookupResult || fgBanSending || !pendingFgBanType) return;
+    const reason = fgBanReasonInput.value.trim();
+    if (!reason) {
+        fgBanReasonInput.focus();
+        return;
+    }
+    fgBanSending = true;
+    fgBanReasonRow.style.display = 'none';
+    fgBanStatus.style.display = 'block';
+    fgBanStatus.style.color = '';
+    fgBanStatus.textContent = 'Gönderiliyor...';
+    ipcRenderer.send('lookup-fg-ban', {
+        type: pendingFgBanType,
+        playerId: currentLookupResult.playerId,
+        license: currentLookupResult.license,
+        reason,
+    });
+}
+
+fgBanSendBtn.addEventListener('click', submitFgBan);
+fgBanReasonInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitFgBan();
+});
+
+ipcRenderer.on('lookup-fg-ban-result', (event, result) => {
+    fgBanSending = false;
+    pendingFgBanType = null;
+    fgBanRow.style.display = 'flex';
+    fgBanStatus.style.display = 'block';
+    fgBanStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
+    fgBanStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
 });
 
 // --- AKTİF TARAMA / İPTAL KUTUCUKLARI ---
@@ -567,6 +652,19 @@ suspiciousNotifyToggle.addEventListener('change', (e) => {
 });
 
 ipcRenderer.send('request-suspicious-notify-status');
+
+// --- WINDOWS AÇILIŞINDA OTOMATİK BAŞLATMA ---
+const openAtLoginToggle = document.getElementById('openAtLoginToggle');
+
+ipcRenderer.on('open-at-login-status', (event, status) => {
+    openAtLoginToggle.checked = status;
+});
+
+openAtLoginToggle.addEventListener('change', (e) => {
+    ipcRenderer.send('toggle-open-at-login', e.target.checked);
+});
+
+ipcRenderer.send('request-open-at-login-status');
 
 ipcRenderer.send('request-mobile-url');
 
