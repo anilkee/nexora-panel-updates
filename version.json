@@ -1,4 +1,4 @@
 {
-  "version": "1.8.2",
-  "changelog": "- ZIP dosyasının içinden (çıkarmadan) çalıştırılırsa ayarların kaybolacağını açıklayan bir uyarı eklendi\n- AC Çağır: çağrılan kişi 3 dakika içinde sunucudan çıkarsa ya da banlanırsa haber veriliyor (pop-up ile)\n- Şüpheli aktivite bildirimine tıklayınca artık doğrudan Discord'daki mesaja gidiyor"
+  "version": "1.9.0",
+  "changelog": "- YENİ: Kimlik Sorgula sonucunda fg ban / fg offline-ban butonları (sebep sorup ac-komut kanalına gönderiyor)\n- YENİ: Windows açılışında otomatik başlatma (Ayarlar'dan aç/kapa, varsayılan açık)\n- YENİ: Discord bağlantısı koparsa otomatik yeniden bağlanma denemesi + kopünce/kurulamazsa uyarı penceresi\n- YENİ: Kimlik Sorgula sonucundaki satırlara tıklayınca değeri panoya kopyalama\n- Ban 1. basış: müşteri artık sadece sabit ban mesajını görüyor, yazdığın sebep sadece log'a düşüyor\n- Küçük arayüz düzeltmeleri"
 }
