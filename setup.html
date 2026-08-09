@@ -42,11 +42,41 @@
             --radius-card: 18px;
             --font-display: "Constantia", "Cambria", Georgia, serif;
         }
+        body[data-theme="d"] {
+            --bg-void: #000000; --bg-panel: #0d0d0d; --bg-panel-raise: #181818;
+            --border-c: #2c2c2c; --border-soft: #1c1c1c;
+            --accent: #e8e8e8; --accent-dim: #5a5a5a;
+            --text-hi: #f5f5f5; --text-lo: #8a8a8a;
+            --danger: #ff453a;
+            --radius-card: 10px;
+            --font-display: "Segoe UI", sans-serif;
+        }
+        body[data-theme="e"] {
+            --bg-void: #f2f2f5; --bg-panel: #ffffff; --bg-panel-raise: #f5f5f8;
+            --border-c: #dcdce2; --border-soft: #e9e9ee;
+            --accent: #0a84ff; --accent-dim: #cfe3ff;
+            --text-hi: #1c1c1e; --text-lo: #6e6e73;
+            --danger: #ff3b30;
+            --radius-card: 12px;
+            --font-display: "Segoe UI", sans-serif;
+        }
+        body[data-theme="f"] {
+            --bg-void: #0a0505; --bg-panel: #150a0a; --bg-panel-raise: #200e0e;
+            --border-c: #3d1616; --border-soft: #260d0d;
+            --accent: #ff2d2d; --accent-dim: #7a1414;
+            --text-hi: #f5e3e3; --text-lo: #a37878;
+            --danger: #ff2d2d;
+            --radius-card: 6px;
+            --font-display: "Consolas", "Cascadia Mono", monospace;
+        }
 
         .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; display: none; }
         body[data-theme="a"] #fxA { display: block; }
         body[data-theme="b"] #fxB { display: block; }
         body[data-theme="c"] #fxC { display: block; }
+        body[data-theme="d"] #fxD { display: block; }
+        body[data-theme="e"] #fxE { display: block; }
+        body[data-theme="f"] #fxF { display: block; }
         #fxA canvas { width: 100%; height: 100%; display: block; }
         #fxB::before {
             content: ""; position: absolute; top: -260px; left: 50%; width: 640px; height: 640px; margin-left: -320px;
@@ -61,8 +91,29 @@
         #fxC span:nth-child(2) { width: 220px; height: 220px; background: #6bd9c9; bottom: 6%; right: -60px; animation-delay: -6s; }
         #fxC span:nth-child(3) { width: 190px; height: 190px; background: #d968b0; bottom: 38%; left: 45%; animation-delay: -11s; opacity: .3; }
         @keyframes drift { 0%, 100% { transform: translate(0,0) scale(1); } 50% { transform: translate(26px,-22px) scale(1.12); } }
+        #fxD::after {
+            content: ""; position: absolute; inset: 0;
+            background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+            background-size: 42px 42px;
+        }
+        #fxD::before {
+            content: ""; position: absolute; left: 0; right: 0; top: -160px; height: 160px;
+            background: linear-gradient(to bottom, transparent, rgba(232,232,232,.09), transparent);
+            animation: scan-sweep 8s linear infinite;
+        }
+        @keyframes scan-sweep { to { transform: translateY(calc(100vh + 160px)); } }
+        #fxE span { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .35; animation: drift 20s ease-in-out infinite; }
+        #fxE span:nth-child(1) { width: 260px; height: 260px; background: #0a84ff; top: 10%; left: -60px; }
+        #fxE span:nth-child(2) { width: 220px; height: 220px; background: #34c759; bottom: 8%; right: -50px; animation-delay: -7s; }
+        #fxE span:nth-child(3) { width: 200px; height: 200px; background: #ff9500; bottom: 35%; left: 50%; animation-delay: -13s; opacity: .22; }
+        #fxF::before {
+            content: ""; position: absolute; top: 50%; left: 50%; width: 500px; height: 500px; margin: -250px 0 0 -250px;
+            border-radius: 50%; background: radial-gradient(circle, rgba(255,45,45,.2), transparent 70%);
+            animation: pulse-glow 3.2s ease-in-out infinite;
+        }
+        @keyframes pulse-glow { 0%, 100% { transform: scale(.85); opacity: .5; } 50% { transform: scale(1.15); opacity: 1; } }
         @media (prefers-reduced-motion: reduce) {
-            #fxB::before, #fxC span { animation: none !important; }
+            #fxB::before, #fxC span, #fxD::before, #fxE span, #fxF::before { animation: none !important; }
         }
 
         .content { position: relative; z-index: 1; }
@@ -72,7 +123,10 @@
         .logo-box svg { width: 100%; height: 100%; position: absolute; inset: 0; display: none; }
         body[data-theme="a"] .logo-box .logo-a,
         body[data-theme="b"] .logo-box .logo-b,
-        body[data-theme="c"] .logo-box .logo-c { display: block; }
+        body[data-theme="c"] .logo-box .logo-c,
+        body[data-theme="d"] .logo-box .logo-a,
+        body[data-theme="e"] .logo-box .logo-a,
+        body[data-theme="f"] .logo-box .logo-a { display: block; }
         .header h1 { font-family: var(--font-display); font-size: 15px; margin: 0; color: var(--text-hi); font-weight: 600; }
         body[data-theme="b"] .header h1 { text-transform: uppercase; letter-spacing: .05em; }
         .header p { font-size: 11.5px; color: var(--text-lo); margin: 6px 0 0; line-height: 1.5; }
@@ -108,6 +162,9 @@
         .swatch-a { background: #49e6ba; }
         .swatch-b { background: #dd9a44; }
         .swatch-c { background: linear-gradient(135deg, #8b7bf5, #6bd9c9); }
+        .swatch-d { background: #000000; border: 1px solid #555; }
+        .swatch-e { background: #ffffff; border: 1px solid #ccc; }
+        .swatch-f { background: linear-gradient(135deg, #000000, #ff2d2d); }
 
         .field { margin-bottom: 12px; }
         .field:last-child { margin-bottom: 0; }
@@ -140,6 +197,9 @@
     <div class="fx-layer" id="fxA"><canvas id="matrixCanvas"></canvas></div>
     <div class="fx-layer" id="fxB"></div>
     <div class="fx-layer" id="fxC"><span></span><span></span><span></span></div>
+    <div class="fx-layer" id="fxD"></div>
+    <div class="fx-layer" id="fxE"><span></span><span></span><span></span></div>
+    <div class="fx-layer" id="fxF"></div>
 
     <div class="content">
         <div class="header">
@@ -216,6 +276,9 @@
                 <button class="theme-btn" data-theme="a" type="button"><span class="swatch swatch-a"></span>Osiloskop</button>
                 <button class="theme-btn" data-theme="b" type="button"><span class="swatch swatch-b"></span>Nöbet Masası</button>
                 <button class="theme-btn" data-theme="c" type="button"><span class="swatch swatch-c"></span>Kristal Kalkan</button>
+                <button class="theme-btn" data-theme="d" type="button"><span class="swatch swatch-d"></span>Siyah</button>
+                <button class="theme-btn" data-theme="e" type="button"><span class="swatch swatch-e"></span>Beyaz</button>
+                <button class="theme-btn" data-theme="f" type="button"><span class="swatch swatch-f"></span>Siyah Kırmızı</button>
             </div>
         </div>
 
