@@ -556,22 +556,6 @@ copyMobileUrlBtn.addEventListener('click', () => {
     setTimeout(() => setButtonLabel(copyMobileUrlBtn, 'Linki Kopyala'), 1500);
 });
 
-// --- KARŞILAMA MESAJI ---
-const welcomeMessageInput = document.getElementById('welcomeMessageInput');
-const saveWelcomeMessageBtn = document.getElementById('saveWelcomeMessageBtn');
-
-ipcRenderer.on('welcome-message', (event, text) => {
-    welcomeMessageInput.value = text || '';
-});
-
-saveWelcomeMessageBtn.addEventListener('click', () => {
-    ipcRenderer.send('set-welcome-message', welcomeMessageInput.value);
-    setButtonLabel(saveWelcomeMessageBtn, 'Kaydedildi!');
-    setTimeout(() => setButtonLabel(saveWelcomeMessageBtn, 'Mesajı Kaydet'), 1500);
-});
-
-ipcRenderer.send('request-welcome-message');
-
 // --- TARAMA MESAJI ---
 const scanMessageInput = document.getElementById('scanMessageInput');
 const saveScanMessageBtn = document.getElementById('saveScanMessageBtn');
@@ -626,19 +610,6 @@ saveAcMessagesBtn.addEventListener('click', () => {
 
 ipcRenderer.send('request-ac-message');
 ipcRenderer.send('request-ac-ticket-message');
-
-// --- OTOMATİK KARŞILAMA AÇMA/KAPAMA ---
-const autoReplyToggle = document.getElementById('autoReplyToggle');
-
-ipcRenderer.on('auto-reply-status', (event, status) => {
-    autoReplyToggle.checked = status;
-});
-
-autoReplyToggle.addEventListener('change', (e) => {
-    ipcRenderer.send('toggle-auto-reply', e.target.checked);
-});
-
-ipcRenderer.send('request-auto-reply-status');
 
 // --- ŞÜPHELİ AKTİVİTE BİLDİRİMİ AÇMA/KAPAMA ---
 const suspiciousNotifyToggle = document.getElementById('suspiciousNotifyToggle');
