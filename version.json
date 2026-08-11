@@ -1,4 +1,4 @@
 {
-  "version": "1.10.0",
-  "changelog": "- Kimlik Sorgula artik webhook-system (Supheli Aktivite) kanalini da kaynak olarak kullaniyor\n- Maksimum arama suresi 1 dakikaya sabitlendi\n- Supheli Aktivite bildirimine tiklayinca dogrudan Discord uygulamasinda aciliyor\n- 3 yeni tema: Siyah, Beyaz, Siyah Kirmizi (arkaplan animasyonlariyla)"
+  "version": "1.11.0",
+  "changelog": "- Otomatik Karsilama sistemi tamamen kaldirildi (musteri ilk mesaj yazinca kendiliginden mesaj/sticker atan sistem)\n- Claim tusu artik sabit bir sticker gonderiyor, ozellestirilemiyor\n- Ayarlar'daki Karsilama karti kaldirildi"
 }
