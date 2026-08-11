@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.10.0';
+const CURRENT_VERSION = '1.11.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -152,9 +152,6 @@ function isConfigComplete() {
 
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 const CATEGORY_ID = process.env.CATEGORY_ID;
-// Koddan sabit veriliyor (config.env üzerinden değil) - böylece bir güncelleme
-// yayınlandığında tüm kurulumlarda aynı anda değişir, her kullanıcı elle ayarlamaz.
-const IGNORED_ROLE_ID = '1470230341569609898';
 const ANTICHEAT_ROLE_ID = process.env.ANTICHEAT_ROLE_ID;
 const NEXORA_API_KEY = process.env.NEXORA_API_KEY;
 const NEXORA_BASE_URL = 'https://nexorascanner.ac/api/v1';
@@ -196,8 +193,6 @@ function broadcastSystemStatus() {
 
 ipcMain.on('request-system-status', () => broadcastSystemStatus());
 
-let autoReplyEnabled = process.env.AUTO_REPLY_ENABLED === 'true';
-let welcomeMessage = process.env.WELCOME_MESSAGE || '';
 
 const DEFAULT_SCAN_MESSAGE = 'Programı çalıştırıp tam ekran ss atar mısınız?';
 let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
@@ -274,18 +269,6 @@ function saveConfigValue(key, value) {
     }
 }
 
-function saveWelcomeMessageToConfig(text) {
-    welcomeMessage = text;
-    saveConfigValue('WELCOME_MESSAGE', text);
-    console.log('[Karşılama] Mesaj kaydedildi.');
-}
-
-function saveAutoReplyToConfig(status) {
-    autoReplyEnabled = status;
-    saveConfigValue('AUTO_REPLY_ENABLED', status ? 'true' : '');
-    console.log(`[Sistem] Otomatik karşılama durumu kaydedildi: ${status ? "AÇIK" : "KAPALI"}`);
-}
-
 function saveScanMessageToConfig(text) {
     scanMessage = text || DEFAULT_SCAN_MESSAGE;
     saveConfigValue('SCAN_MESSAGE', text);
@@ -324,7 +307,6 @@ function saveOpenAtLoginToConfig(status) {
     app.setLoginItemSettings({ openAtLogin: status });
     console.log(`[Ayar] Windows açılışında otomatik başlatma: ${status ? 'AÇIK' : 'KAPALI'}`);
 }
-const activeTickets = new Set();
 const heldTickets = new Set();       // beklemeye alınmış ticket kanal ID'leri
 const channelScans = new Map();      // kanal ID -> o kanalda süren "kontrol" tarama kodu
 const channelLastLogMessage = new Map(); // kanal ID -> o kanalın en son sonuç log mesajı (ban notu için)
@@ -425,22 +407,6 @@ ipcMain.on('request-debug-log', (event) => {
 
 ipcMain.on('open-debug-log-folder', () => {
     shell.showItemInFolder(DEBUG_LOG_PATH);
-});
-
-ipcMain.on('toggle-auto-reply', (event, status) => {
-    saveAutoReplyToConfig(status);
-});
-
-ipcMain.on('request-auto-reply-status', (event) => {
-    if (mainWindow) mainWindow.webContents.send('auto-reply-status', autoReplyEnabled);
-});
-
-ipcMain.on('set-welcome-message', (event, text) => {
-    saveWelcomeMessageToConfig(text.trim());
-});
-
-ipcMain.on('request-welcome-message', (event) => {
-    if (mainWindow) mainWindow.webContents.send('welcome-message', welcomeMessage);
 });
 
 ipcMain.on('set-scan-message', (event, text) => {
@@ -554,19 +520,15 @@ ipcMain.on('cancel-scan', (event, code) => {
 
 // --- TICKET AKSİYONLARI (Electron paneli ve mobil panel ortak kullanır) ---
 
-// Ticket'ı claim eder: otomatik karşılama sistemindekiyle aynı mesajı/sticker'ı
-// manuel olarak gönderir. Mesaj gönderilince "ESKİ SİSTEMLER" bloğu zaten kanalı
-// myTickets'a ekleyip claimed hale getiriyor.
+// Ticket'ı claim eder: sabit bir sticker göndererek claim edildiğini belli eder.
+// Mesaj gönderilince "ESKİ SİSTEMLER" bloğu zaten kanalı myTickets'a ekleyip
+// claimed hale getiriyor.
 async function performTicketClaim(channelId) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
     try {
-        if (welcomeMessage) {
-            await channel.send(welcomeMessage);
-        } else {
-            await channel.send({ stickers: ['749054660769218631'] });
-        }
-        console.log(`[Panel] ${channel.name}: claim edildi, karşılama mesajı gönderildi.`);
+        await channel.send({ stickers: ['749054660769218631'] });
+        console.log(`[Panel] ${channel.name}: claim edildi, sticker gönderildi.`);
     } catch (error) {
         console.log(`[Hata] ${channel.name} claim edilemedi: ${error.message}`);
     }
@@ -1284,7 +1246,7 @@ ipcMain.on('save-setup', (event, values) => {
         }
     }
 
-    // Mevcut config.env'deki diğer ayarları (karşılama/tarama mesajı vb.) korumak için
+    // Mevcut config.env'deki diğer ayarları (tarama/ban mesajı vb.) korumak için
     // önce onun üstüne, sonra yeni değerlerin üstüne yazıyoruz - panel içi Ayarlar'dan
     // sadece hesap/sunucu alanları değiştiğinde diğer ayarlar silinmesin diye.
     const merged = { ...readConfigEnvAsObject(), ...values, MOBILE_ACCESS_TOKEN };
@@ -1796,25 +1758,6 @@ client.on('channelCreate', async (channel) => {
         if (mainWindow) {
             mainWindow.webContents.send('ticket-geldi');
         }
-
-        // Discord bu event'i sadece gerçekten yeni açılan kanallarda değil, bir kanal
-        // izin/rol değişikliği (örn. claim edilmesi) yüzünden bize sonradan görünür
-        // olduğunda da gönderebiliyor. İçinde zaten insan mesajı varsa bu eski bir
-        // ticket demektir - otomatik karşılama listesine ekleyip eski konuşmaya
-        // tekrar "hoş geldin" mesajı atmayalım.
-        try {
-            const recentMessages = await channel.messages.fetch({ limit: 10 });
-            const hasHumanMessage = recentMessages.some((m) => !m.author.bot);
-            if (hasHumanMessage) {
-                console.log(`[Karşılama] "${channel.name}" zaten insan mesajı içeriyor, otomatik karşılama uygulanmayacak.`);
-                broadcastTicketList();
-                return;
-            }
-        } catch (error) {
-            console.log(`[Karşılama] "${channel.name}" geçmişi kontrol edilemedi: ${error.message}`);
-        }
-
-        activeTickets.add(channel.id);
         broadcastTicketList();
     }
 });
@@ -1822,7 +1765,6 @@ client.on('channelCreate', async (channel) => {
 client.on('channelDelete', (channel) => {
     if (channel.parentId === CATEGORY_ID) {
         console.log(`[Ticket] Kanal kapatıldı: ${channel.name} (${channel.id})`);
-        activeTickets.delete(channel.id);
         heldTickets.delete(channel.id);
         channelScans.delete(channel.id);
         channelLastLogMessage.delete(channel.id);
@@ -1898,37 +1840,6 @@ client.on('messageCreate', async (message) => {
             } else {
                 channelGameId.delete(message.channel.id);
                 console.log(`[Oyun İçi ID] ${message.channel.name}: kullanıcı şu an oyunda değil.`);
-            }
-        }
-    }
-
-    // --- YENİ OTOMATİK KARŞILAMA SİSTEMİ ---
-    if (activeTickets.has(message.channel.id) && autoReplyEnabled) {
-        if (!message.author.bot) {
-            if (message.author.id === client.user.id) {
-                console.log(`[Karşılama] Kendi mesajın algılandı, kanalı izlemeyi bırakıyorum: ${message.channel.id}`);
-                activeTickets.delete(message.channel.id);
-            } else {
-                const hasIgnoredRole = message.member?.roles?.cache.has(IGNORED_ROLE_ID);
-                if (hasIgnoredRole) {
-                    console.log(`[Karşılama] Yetkili mesaj attı, işlem yapılmadı: ${message.author.username}`);
-                    activeTickets.delete(message.channel.id);
-                } else {
-                    try {
-                        if (welcomeMessage) {
-                            console.log(`[Karşılama] Müşteriye özel mesaj gönderiliyor...`);
-                            await message.channel.send(welcomeMessage);
-                            console.log(`[Karşılama] Mesaj başarıyla gönderildi.`);
-                        } else {
-                            console.log(`[Karşılama] Müşteriye sticker gönderiliyor...`);
-                            await message.channel.send({ stickers: ['749054660769218631'] });
-                            console.log(`[Karşılama] Sticker başarıyla gönderildi.`);
-                        }
-                        activeTickets.delete(message.channel.id);
-                    } catch (error) {
-                        console.log(`[Hata] Karşılama gönderilemedi: ${error.message}`);
-                    }
-                }
             }
         }
     }
