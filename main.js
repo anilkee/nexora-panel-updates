@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.11.0';
+const CURRENT_VERSION = '1.12.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -213,6 +213,10 @@ let acTicketMessage = process.env.AC_TICKET_MESSAGE || DEFAULT_AC_TICKET_MESSAGE
 // AÇIK - kapatılırsa config.env'e "false" olarak yazılır (bkz. saveSuspiciousNotifyToConfig).
 let suspiciousNotifyEnabled = process.env.SUSPICIOUS_NOTIFY_ENABLED !== 'false';
 
+// Fiveguard (fiveguard.net) log kanalı bildirimi - webhook-system'daki (FeloxAC)
+// sistemden AYRI, ikinci bir hile tespit kaynağı. Varsayılan AÇIK.
+let fiveguardNotifyEnabled = process.env.FIVEGUARD_NOTIFY_ENABLED !== 'false';
+
 // Windows açılışında otomatik başlatma. Varsayılan AÇIK - bu güncellemeyi alan
 // herkeste otomatik devreye girsin diye (kapatılırsa config.env'e "false" yazılır).
 let openAtLoginEnabled = process.env.OPEN_AT_LOGIN !== 'false';
@@ -287,6 +291,12 @@ function saveSuspiciousNotifyToConfig(status) {
     console.log(`[Şüpheli Bildirim] Durum kaydedildi: ${status ? "AÇIK" : "KAPALI"}`);
 }
 
+function saveFiveguardNotifyToConfig(status) {
+    fiveguardNotifyEnabled = status;
+    saveConfigValue('FIVEGUARD_NOTIFY_ENABLED', status ? 'true' : 'false');
+    console.log(`[Fiveguard Bildirim] Durum kaydedildi: ${status ? "AÇIK" : "KAPALI"}`);
+}
+
 function saveAcMessageToConfig(text) {
     acMessage = text || DEFAULT_AC_MESSAGE;
     saveConfigValue('AC_MESSAGE', text);
@@ -340,7 +350,8 @@ function getTicketChannels() {
                 flagged: cheatingFlagged.has(ch.id),
                 resultVerdict: lastResult ? lastResult.verdict : null,
                 resultUrl: lastResult ? lastResult.url : null,
-                banStage: banClickedOnce.has(ch.id) ? 'second' : 'first'
+                banStage: banClickedOnce.has(ch.id) ? 'second' : 'first',
+                channelUrl: ch.guild ? `discord://-/channels/${ch.guild.id}/${ch.id}` : null
             };
         })
         // Bizim yazdığımız (claim edilmiş) ticketlar üstte, her grup kendi içinde alfabetik.
@@ -447,6 +458,14 @@ ipcMain.on('toggle-suspicious-notify', (event, status) => {
 
 ipcMain.on('request-suspicious-notify-status', (event) => {
     if (mainWindow) mainWindow.webContents.send('suspicious-notify-status', suspiciousNotifyEnabled);
+});
+
+ipcMain.on('toggle-fiveguard-notify', (event, status) => {
+    saveFiveguardNotifyToConfig(status);
+});
+
+ipcMain.on('request-fiveguard-notify-status', (event) => {
+    if (mainWindow) mainWindow.webContents.send('fiveguard-notify-status', fiveguardNotifyEnabled);
 });
 
 ipcMain.on('toggle-open-at-login', (event, status) => {
@@ -1737,6 +1756,77 @@ async function catchUpSuspiciousChannel() {
     }
 }
 
+// --- FIVEGUARD (fiveguard.net) LOG KANALI BİLDİRİMİ ---
+// webhook-system'daki (FeloxAC) sistemden AYRI, ikinci bir hile tespit kaynağı.
+// Bu botun embed'lerinde Player ID yok - identite yine License/Steam/Discord/Name
+// önceliğiyle (extractSuspiciousIdentifier, yukarıda zaten generic tanımlı) çıkarılıyor,
+// bildirim gövdesinde Player ID yerine Name + Violation gösteriliyor.
+const FIVEGUARD_CHANNEL_ID = '1470798988658610491';
+const FIVEGUARD_BOT_ID = '1472770633455898736';
+
+// Aynı kişinin son 50 rapor içinde kaç kez düştüğünü hesaplamak için ayrı bir kayan
+// pencere - webhook-system'ınkiyle (recentSuspiciousReports) KARIŞTIRILMIYOR, iki
+// farklı anticheat/kaynak birbirinden bağımsız sayılıyor.
+const recentFiveguardReports = [];
+
+function recordFiveguardReport(message) {
+    const embed = message.embeds?.[0];
+    const identifier = extractSuspiciousIdentifier(embed) || message.author?.id || message.id;
+    const displayName = findEmbedField(embed, /^name$/i) || message.author?.username || 'Bilinmeyen';
+    const violation = findEmbedField(embed, /violation/i);
+    const messageUrl = message.guild ? `discord://-/channels/${message.guild.id}/${message.channel.id}/${message.id}` : null;
+
+    recentFiveguardReports.push(identifier);
+    if (recentFiveguardReports.length > 50) recentFiveguardReports.shift();
+
+    const occurrences = recentFiveguardReports.filter((id) => id === identifier).length;
+    return { displayName, violation, occurrences, messageUrl };
+}
+
+function showFiveguardNotification({ displayName, violation, occurrences, messageUrl }) {
+    if (!fiveguardNotifyEnabled || !Notification.isSupported()) return;
+
+    const violationText = violation ? `: ${violation}` : '';
+    const repeated = occurrences >= 2;
+    const notification = new Notification({
+        title: repeated ? `🚨 ${occurrences}. KEZ DÜŞTÜ — Fiveguard` : '⚠️ Fiveguard',
+        body: repeated
+            ? `${displayName} isimli kişi son 50 raporda ${occurrences}. kez Fiveguard logına düştü${violationText}`
+            : `${displayName} isimli kişi Fiveguard logına düştü${violationText}`,
+    });
+    notification.on('click', () => {
+        if (messageUrl) {
+            shell.openExternal(messageUrl);
+        } else if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+    notification.show();
+}
+
+// Açılışta son 50 mesajı bir kez çekip sayaç penceresini dolduruyoruz - webhook-system'daki
+// catchUpSuspiciousChannel ile birebir aynı desen, bu 50 mesaj için bildirim atılmıyor.
+async function catchUpFiveguardChannel() {
+    const channel = client.channels.cache.get(FIVEGUARD_CHANNEL_ID);
+    if (!channel) {
+        console.log(`[Fiveguard Bildirim] Kanal bulunamadı (${FIVEGUARD_CHANNEL_ID}), takip başlatılamadı.`);
+        return;
+    }
+    try {
+        const recent = await channel.messages.fetch({ limit: 50 });
+        if (recent.size === 0) return;
+
+        const sorted = [...recent.values()].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+        for (const m of sorted) {
+            recordFiveguardReport(m);
+        }
+        console.log(`[Fiveguard Bildirim] Son ${sorted.length} mesaj tarandı (sayaç dolduruldu, bildirim atılmadı), takip aktif.`);
+    } catch (error) {
+        console.log(`[Fiveguard Bildirim] Son 50 mesaj çekilemedi: ${error.message}`);
+    }
+}
+
 client.on('ready', () => {
     if (hasConnectedBefore) {
         console.log(`[Bağlantı] Yeniden bağlanıldı: ${client.user.tag}`);
@@ -1749,6 +1839,7 @@ client.on('ready', () => {
     reconnectAttempts = 0; // başarılı giriş - deneme sayacı sıfırlanır
     hasConnectedBefore = true;
     catchUpSuspiciousChannel();
+    catchUpFiveguardChannel();
     refreshMyTickets();
 });
 
@@ -1812,6 +1903,12 @@ client.on('messageCreate', async (message) => {
     if (message.channel.id === SUSPICIOUS_CHANNEL_ID && message.author.id !== client.user.id) {
         const report = recordSuspiciousReport(message);
         showSuspiciousNotification(report);
+    }
+
+    // --- FIVEGUARD LOG KANALI BİLDİRİMİ ---
+    if (message.channel.id === FIVEGUARD_CHANNEL_ID && message.author.id === FIVEGUARD_BOT_ID) {
+        const report = recordFiveguardReport(message);
+        showFiveguardNotification(report);
     }
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
