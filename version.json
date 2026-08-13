@@ -1,4 +1,4 @@
 {
-  "version": "1.11.0",
-  "changelog": "- Otomatik Karsilama sistemi tamamen kaldirildi (musteri ilk mesaj yazinca kendiliginden mesaj/sticker atan sistem)\n- Claim tusu artik sabit bir sticker gonderiyor, ozellestirilemiyor\n- Ayarlar'daki Karsilama karti kaldirildi"
+  "version": "1.12.0",
+  "changelog": "- Yazdigimiz ticket kartlarina 'Discord'da Ac' butonu eklendi\n- Fiveguard log kanali icin ikinci bir Windows bildirim sistemi eklendi (Ayarlar'da ayri toggle)"
 }
