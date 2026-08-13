@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.12.0';
+const CURRENT_VERSION = '1.12.1';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -1698,18 +1698,22 @@ function recordSuspiciousReport(message) {
     const playerId = findEmbedField(embed, /player\s*id/i);
     // "discord://" özel protokolü - https://discord.com/... linki tarayıcıda açılıp
     // oradan "Discord'ta Aç" ile yönlendirme gerektiriyordu, bu ise Discord kurulu ise
-    // doğrudan uygulamayı (masaüstü istemcisini) açıp o mesaja gidiyor, tarayıcı hiç
-    // araya girmiyor.
-    const messageUrl = message.guild ? `discord://-/channels/${message.guild.id}/${message.channel.id}/${message.id}` : null;
+    // doğrudan uygulamayı (masaüstü istemcisini) açıp gidiyor, tarayıcı hiç araya girmiyor.
+    // BİLEREK mesaj ID'si eklenmiyor (sadece guild/kanal) - Discord belirli bir mesaja
+    // "jump" ederken o mesajın etrafını ayrıca sorguluyor, bu da tıklamayı gözle görülür
+    // yavaşlatıyordu (kullanıcı canlı testte fark etti). Sadece kanala gitmek, ticket
+    // kartındaki "Discord'da Aç" butonuyla (getTicketChannels/channelUrl) AYNI - AYNI
+    // KADAR HIZLI - format, kanal zaten Discord'da önceden yüklenmiş/önbellekte oluyor.
+    const channelUrl = message.guild ? `discord://-/channels/${message.guild.id}/${message.channel.id}` : null;
 
     recentSuspiciousReports.push(identifier);
     if (recentSuspiciousReports.length > 50) recentSuspiciousReports.shift();
 
     const occurrences = recentSuspiciousReports.filter((id) => id === identifier).length;
-    return { embed, displayName, playerId, occurrences, messageUrl };
+    return { embed, displayName, playerId, occurrences, channelUrl };
 }
 
-function showSuspiciousNotification({ embed, displayName, playerId, occurrences, messageUrl }) {
+function showSuspiciousNotification({ embed, displayName, playerId, occurrences, channelUrl }) {
     if (!suspiciousNotifyEnabled || !Notification.isSupported()) return;
 
     const baseTitle = stripDiscordMarkup(embed?.title) || 'Şüpheli Aktivite';
@@ -1722,8 +1726,8 @@ function showSuspiciousNotification({ embed, displayName, playerId, occurrences,
             : `${whoText} için yeni bir hile bildirimi geldi.`,
     });
     notification.on('click', () => {
-        if (messageUrl) {
-            shell.openExternal(messageUrl);
+        if (channelUrl) {
+            shell.openExternal(channelUrl);
         } else if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
@@ -1771,19 +1775,28 @@ const recentFiveguardReports = [];
 
 function recordFiveguardReport(message) {
     const embed = message.embeds?.[0];
+    // Bot her raporda log embed'ine EK olarak (öncesinde ya da sonrasında) sadece
+    // video eki içeren AYRI bir mesaj da atıyor - o mesajda embed/Name alanı
+    // olmadığı için, olmadığında bunu gerçek bir rapor SAYMIYORUZ (sayaca da
+    // eklemiyoruz, bildirim de atmıyoruz) - aksi halde "fiveguard isimli kişi..."
+    // gibi anlamsız bildirimler gidiyordu (bot kullanıcı adına düşüyordu).
+    const displayName = findEmbedField(embed, /^name$/i);
+    if (!displayName) return null;
+
     const identifier = extractSuspiciousIdentifier(embed) || message.author?.id || message.id;
-    const displayName = findEmbedField(embed, /^name$/i) || message.author?.username || 'Bilinmeyen';
     const violation = findEmbedField(embed, /violation/i);
-    const messageUrl = message.guild ? `discord://-/channels/${message.guild.id}/${message.channel.id}/${message.id}` : null;
+    // Mesaj ID'si BİLEREK eklenmiyor (bkz. showSuspiciousNotification'daki aynı not) -
+    // sadece kanala giden link, "Discord'da Aç" ticket butonuyla AYNI hızda açılıyor.
+    const channelUrl = message.guild ? `discord://-/channels/${message.guild.id}/${message.channel.id}` : null;
 
     recentFiveguardReports.push(identifier);
     if (recentFiveguardReports.length > 50) recentFiveguardReports.shift();
 
     const occurrences = recentFiveguardReports.filter((id) => id === identifier).length;
-    return { displayName, violation, occurrences, messageUrl };
+    return { displayName, violation, occurrences, channelUrl };
 }
 
-function showFiveguardNotification({ displayName, violation, occurrences, messageUrl }) {
+function showFiveguardNotification({ displayName, violation, occurrences, channelUrl }) {
     if (!fiveguardNotifyEnabled || !Notification.isSupported()) return;
 
     const violationText = violation ? `: ${violation}` : '';
@@ -1795,8 +1808,8 @@ function showFiveguardNotification({ displayName, violation, occurrences, messag
             : `${displayName} isimli kişi Fiveguard logına düştü${violationText}`,
     });
     notification.on('click', () => {
-        if (messageUrl) {
-            shell.openExternal(messageUrl);
+        if (channelUrl) {
+            shell.openExternal(channelUrl);
         } else if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
@@ -1908,7 +1921,7 @@ client.on('messageCreate', async (message) => {
     // --- FIVEGUARD LOG KANALI BİLDİRİMİ ---
     if (message.channel.id === FIVEGUARD_CHANNEL_ID && message.author.id === FIVEGUARD_BOT_ID) {
         const report = recordFiveguardReport(message);
-        showFiveguardNotification(report);
+        if (report) showFiveguardNotification(report);
     }
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
