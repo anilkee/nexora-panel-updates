@@ -338,6 +338,7 @@
             <symbol id="icon-flag" viewBox="0 0 24 24"><path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/></symbol>
             <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></symbol>
             <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/></symbol>
+            <symbol id="icon-discord" viewBox="0 0 24 24"><path d="M8 9.5c0-1 .8-2 2-2s2 1 2 2M14 9.5c0-1 .8-2 2-2s2 1 2 2"/><path d="M5 8c1.5-1.5 4-2.5 7-2.5s5.5 1 7 2.5c1 4 1 8 0 10-1.5 1.5-4 2-4 2l-1-2M5 8c-1 4-1 8 0 10 1.5 1.5 4 2 4 2l1-2"/><path d="M8.5 15.5c2 1 5 1 7 0"/></symbol>
             <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="3.2" height="14" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
             <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/></symbol>
@@ -601,6 +602,14 @@
                 }
                 holdBtn.onclick = () => postAction(ticket.id, 'hold');
                 actions.appendChild(holdBtn);
+
+                if (ticket.channelUrl) {
+                    const openBtn = document.createElement('button');
+                    openBtn.className = 'ticket-btn open-btn';
+                    openBtn.innerHTML = `${iconHtml('discord')}<span>Discord'da Aç</span>`;
+                    openBtn.onclick = () => window.open(ticket.channelUrl, '_blank');
+                    actions.appendChild(openBtn);
+                }
 
                 if (ticket.resultUrl) {
                     const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
