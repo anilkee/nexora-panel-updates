@@ -485,6 +485,14 @@ function renderTicketCard(ticket) {
         setHoldButtonState(holdBtn, ticket.id, ticket.held);
         actions.appendChild(holdBtn);
 
+        if (ticket.channelUrl) {
+            const openBtn = document.createElement('button');
+            openBtn.className = 'ticket-btn open-btn';
+            openBtn.innerHTML = `${iconHtml('discord')}<span>Discord'da Aç</span>`;
+            openBtn.onclick = () => shell.openExternal(ticket.channelUrl);
+            actions.appendChild(openBtn);
+        }
+
         if (ticket.resultUrl) {
             const verdictKey = String(ticket.resultVerdict || '').toLowerCase();
             const verdictClass = verdictKey === 'cheating' ? 'danger' : verdictKey === 'warn' ? 'warn' : verdictKey === 'clean' ? 'ok' : 'neutral';
@@ -623,6 +631,19 @@ suspiciousNotifyToggle.addEventListener('change', (e) => {
 });
 
 ipcRenderer.send('request-suspicious-notify-status');
+
+// --- FIVEGUARD BİLDİRİMİ AÇMA/KAPAMA ---
+const fiveguardNotifyToggle = document.getElementById('fiveguardNotifyToggle');
+
+ipcRenderer.on('fiveguard-notify-status', (event, status) => {
+    fiveguardNotifyToggle.checked = status;
+});
+
+fiveguardNotifyToggle.addEventListener('change', (e) => {
+    ipcRenderer.send('toggle-fiveguard-notify', e.target.checked);
+});
+
+ipcRenderer.send('request-fiveguard-notify-status');
 
 // --- WINDOWS AÇILIŞINDA OTOMATİK BAŞLATMA ---
 const openAtLoginToggle = document.getElementById('openAtLoginToggle');
