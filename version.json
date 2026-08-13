@@ -1,4 +1,4 @@
 {
-  "version": "1.12.0",
-  "changelog": "- Yazdigimiz ticket kartlarina 'Discord'da Ac' butonu eklendi\n- Fiveguard log kanali icin ikinci bir Windows bildirim sistemi eklendi (Ayarlar'da ayri toggle)"
+  "version": "1.12.1",
+  "changelog": "- Fiveguard: video eki iceren mesajlar artik yanlislikla bildirim/sayaca girmiyor\n- Supheli Aktivite ve Fiveguard bildirimlerine tiklayinca artik ticket panelindeki 'Discord'da Ac' butonuyla ayni hizda aciliyor (mesaj ID'siz, sadece kanala gidiyor)"
 }
