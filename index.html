@@ -8,12 +8,47 @@
         html, body { height: 100%; }
         body {
             margin: 0;
-            padding: 18px;
-            overflow-y: auto;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
             font-family: "Segoe UI", system-ui, sans-serif;
             background: var(--bg-void);
             color: var(--text-hi);
         }
+
+        /* Pencere çerçevesi kapatılıp (frame:false) bu şerit onun yerini alıyor - panelle
+           aynı renk/temada, sürüklenebilir (-webkit-app-region:drag), sağda küçült/kapat. */
+        .titlebar {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            height: 32px;
+            padding-left: 4px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border-c);
+            -webkit-app-region: drag;
+            user-select: none;
+        }
+        .titlebar-spacer { flex: 1; }
+        .titlebar-controls { display: flex; height: 100%; -webkit-app-region: no-drag; }
+        .titlebar-btn {
+            width: 34px; height: 100%; display: flex; align-items: center; justify-content: center;
+            background: transparent; border: none; color: var(--text-lo); cursor: pointer; padding: 0;
+        }
+        .titlebar-btn:hover { background: var(--bg-panel-raise); color: var(--text-hi); }
+        .titlebar-btn.close-app:hover { background: var(--danger); color: #fff; }
+        .titlebar-btn .icon { width: 12px; height: 12px; }
+
+        /* Klasikte .app-shell tek çocuklu (.content) bir satır gibi davranır, eski yapıyla
+           birebir aynı görünür - .side-rail/.ld-list sadece sidebar/list-detail'de açılıyor. */
+        .app-shell { flex: 1 1 auto; display: flex; min-height: 0; }
+        .content { flex: 1 1 auto; overflow-y: auto; padding: 18px; min-width: 0; }
+
+        /* Özel scrollbar - OS'un varsayılanı yerine tema renklerine uyumlu ince bir çizgi. */
+        .content::-webkit-scrollbar, .ld-list-body::-webkit-scrollbar { width: 8px; }
+        .content::-webkit-scrollbar-track, .ld-list-body::-webkit-scrollbar-track { background: transparent; }
+        .content::-webkit-scrollbar-thumb, .ld-list-body::-webkit-scrollbar-thumb { background: var(--border-c); border-radius: 4px; }
+        .content::-webkit-scrollbar-thumb:hover, .ld-list-body::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
 
         body[data-theme="a"] {
             --bg-void: #090b0a; --bg-panel: #101513; --bg-panel-raise: #161c19;
@@ -123,17 +158,116 @@
             #fxB::before, #fxC span, #fxD::before, #fxE span, #fxF::before { animation: none !important; }
         }
 
-        .content { position: relative; z-index: 1; }
+        .content { position: relative; z-index: 1; scrollbar-gutter: stable; }
+
+        /* --- YERLEŞİM (LAYOUT) SİSTEMİ ---
+           3 yerleşim modu var: "classic" (mevcut, dar tek sütun - varsayılan), "sidebar"
+           (yan panel: soldaki dar ikon rayı ile bölümler arası geçiş), "list-detail"
+           (liste + detay: soldaki ticket listesi + sekmeli detay alanı). Hangi bölümün
+           (tickets/lookup/status/settings) görünür olduğu body[data-section] ile, hangi
+           yerleşimde olduğumuz body[data-layout] ile kontrol edilir - JS sadece bu iki
+           attribute'u günceller, görünürlüğü tamamen CSS hallediyor (inline style çakışması
+           olmasın diye .section-block'larda ASLA style.display kullanılmıyor). */
+        .side-rail {
+            display: none; flex-direction: column; align-items: center; gap: 4px;
+            flex: 0 0 56px; padding: 12px 0; background: var(--bg-panel); border-right: 1px solid var(--border-c);
+            position: relative; z-index: 1;
+        }
+        .rail-btn {
+            width: 38px; height: 38px; border-radius: calc(var(--radius-card) - 1px);
+            background: transparent; border: 1px solid transparent; color: var(--text-lo);
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            transition: color .15s, background .15s, border-color .15s;
+        }
+        .rail-btn .icon { width: 17px; height: 17px; }
+        .rail-btn:hover { color: var(--text-hi); }
+        .rail-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent-dim); }
+        body[data-layout="sidebar"] .side-rail { display: flex; }
+
+        .ld-list {
+            display: none; flex-direction: column; flex: 0 0 190px; background: var(--bg-panel);
+            border-right: 1px solid var(--border-c); overflow-y: auto; position: relative; z-index: 1;
+        }
+        .ld-list-head { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-lo); padding: 14px 12px 8px; flex-shrink: 0; }
+        .ld-list-body { flex: 1 1 auto; overflow-y: auto; }
+        .ld-list-item {
+            display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 11.5px;
+            color: var(--text-hi); cursor: pointer; border-left: 2px solid transparent;
+        }
+        .ld-list-item:hover { background: var(--bg-panel-raise); }
+        .ld-list-item.active { background: var(--bg-panel-raise); border-left-color: var(--accent); color: var(--accent); }
+        .ld-list-item .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .ld-list-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ld-list-empty { padding: 14px 12px; font-size: 11px; color: var(--text-lo); }
+        body[data-layout="list-detail"] .ld-list { display: flex; }
+
+        .ld-tabs { display: none; gap: 6px; margin-bottom: 14px; }
+        .ld-tab {
+            flex: 1; background: var(--bg-panel-raise); border: 1px solid var(--border-c); color: var(--text-lo);
+            border-radius: calc(var(--radius-card) - 1px); padding: 7px 4px; font-size: 10.5px; font-weight: 600;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
+            font-family: "Segoe UI", sans-serif; transition: color .15s, border-color .15s;
+        }
+        .ld-tab .icon { width: 13px; height: 13px; }
+        .ld-tab:hover { color: var(--text-hi); }
+        .ld-tab.active { color: var(--accent); border-color: var(--accent-dim); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        body[data-layout="list-detail"] .ld-tabs { display: flex; }
+
+        /* Bölüm görünürlüğü: klasikte tickets/lookup/status HER ZAMAN birlikte (mevcut
+           "ana görünüm" davranışı), settings ayrı tam ekran. Sidebar/list-detail'de ise
+           her an sadece data-section'daki TEK bölüm görünür. */
+        .section-block { display: none; }
+        body[data-layout="classic"]:not([data-section="settings"]) .section-block[data-section="tickets"],
+        body[data-layout="classic"]:not([data-section="settings"]) .section-block[data-section="lookup"],
+        body[data-layout="classic"]:not([data-section="settings"]) .section-block[data-section="status"] { display: block; }
+        body[data-layout="classic"][data-section="settings"] .section-block[data-section="settings"] { display: block; }
+        body[data-layout="sidebar"][data-section="tickets"] .section-block[data-section="tickets"],
+        body[data-layout="sidebar"][data-section="lookup"] .section-block[data-section="lookup"],
+        body[data-layout="sidebar"][data-section="status"] .section-block[data-section="status"],
+        body[data-layout="sidebar"][data-section="settings"] .section-block[data-section="settings"],
+        body[data-layout="list-detail"][data-section="tickets"] .section-block[data-section="tickets"],
+        body[data-layout="list-detail"][data-section="lookup"] .section-block[data-section="lookup"],
+        body[data-layout="list-detail"][data-section="status"] .section-block[data-section="status"],
+        body[data-layout="list-detail"][data-section="settings"] .section-block[data-section="settings"] { display: block; }
+
+        /* Sidebar/list-detail'de Ayarlar'a kendi nav'larından gidiliyor, üstteki dişli fazlalık. */
+        body[data-layout="sidebar"] #settingsBtn,
+        body[data-layout="list-detail"] #settingsBtn { display: none; }
+
+        /* Yan Panel: ticket kartları 2 sütun ızgara halinde. */
+        body[data-layout="sidebar"] #ticketsList { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        body[data-layout="sidebar"] #ticketsList .ticket-card { margin-bottom: 0; }
+
+        /* Liste + Detay: ticket kartlarının sadece soldan seçilmiş olanı görünür. */
+        body[data-layout="list-detail"] #ticketsList .ticket-card { display: none; }
+        body[data-layout="list-detail"] #ticketsList .ticket-card.detail-active { display: block; }
+        /* "AKTİF TİCKETLAR" başlığı çoğul/liste ima ediyor - Liste+Detay'da tek bir ticket'ın
+           detayı gösterildiği için anlamsız, bunun yerine üstteki .ld-detail-info kullanılıyor. */
+        body[data-layout="list-detail"] #ticketsCard > h2 { display: none; }
+
+        /* Liste + Detay: seçili ticket için otomatik çekilen zengin kimlik bilgisi
+           (Oyun İçi ID/License/Discord/Steam + varsa son bağlantı/ban notu). Sadece bu
+           modda ve veri varken görünür (bkz. renderDetailInfo*, renderer.js). */
+        .ld-detail-info { display: none; margin-bottom: 12px; }
+        body[data-layout="list-detail"] .ld-detail-info.has-data { display: block; }
+        .ld-detail-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--text-hi); margin: 0 0 2px; word-break: break-word; }
+        .ld-detail-sub { font-size: 11px; color: var(--text-lo); margin-bottom: 12px; }
+        .ld-detail-loading { font-size: 11.5px; color: var(--text-lo); padding: 8px 0; }
+        .ld-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 10px; }
+        .ld-detail-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .ld-detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-lo); }
+        .ld-detail-value { font-size: 12.5px; font-weight: 600; color: var(--text-hi); word-break: break-all; }
+        .ld-detail-ban {
+            display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--danger);
+            background: color-mix(in srgb, var(--danger) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+            border-radius: calc(var(--radius-card) - 1px); padding: 8px 10px; margin-bottom: 10px;
+        }
+        .ld-detail-hint { font-size: 11px; color: var(--text-lo); margin-bottom: 10px; }
 
         .header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-        .logo-box { width: 34px; height: 34px; flex-shrink: 0; position: relative; color: var(--accent); }
-        .logo-box svg { width: 100%; height: 100%; position: absolute; inset: 0; display: none; }
-        body[data-theme="a"] .logo-box .logo-a,
-        body[data-theme="b"] .logo-box .logo-b,
-        body[data-theme="c"] .logo-box .logo-c,
-        body[data-theme="d"] .logo-box .logo-a,
-        body[data-theme="e"] .logo-box .logo-a,
-        body[data-theme="f"] .logo-box .logo-a { display: block; }
+        .logo-box { width: 36px; height: 36px; flex-shrink: 0; position: relative; }
+        .logo-box img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
         .header-text { flex: 1; min-width: 0; }
         .header h1 { font-family: var(--font-display); font-size: 15px; margin: 0; color: var(--text-hi); font-weight: 600; }
@@ -299,15 +433,17 @@
         }
         .cancel-btn:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
-        .theme-picker { display: flex; flex-direction: column; gap: 6px; }
-        .theme-btn {
+        .theme-picker, .layout-picker { display: flex; flex-direction: column; gap: 6px; }
+        .theme-btn, .layout-btn {
             display: flex; align-items: center; gap: 8px; background: var(--bg-panel-raise);
             border: 1px solid var(--border-c); color: var(--text-hi); border-radius: calc(var(--radius-card) - 1px);
             padding: 8px 10px; font-size: 11.5px; font-weight: 600; cursor: pointer; text-align: left;
             font-family: "Segoe UI", sans-serif; transition: border-color .15s, background .15s;
         }
-        .theme-btn:hover { border-color: var(--accent-dim); }
-        .theme-btn.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        .theme-btn:hover, .layout-btn:hover { border-color: var(--accent-dim); }
+        .theme-btn.active, .layout-btn.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        .layout-btn .layout-desc { display: block; font-size: 10px; font-weight: 400; color: var(--text-lo); margin-top: 1px; }
+        .layout-btn.active .layout-desc { color: inherit; opacity: .8; }
         .swatch { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
         .swatch-a { background: #49e6ba; }
         .swatch-b { background: #dd9a44; }
@@ -338,7 +474,14 @@
         }
     </style>
 </head>
-<body data-theme="a">
+<body data-theme="a" data-layout="classic" data-section="tickets">
+    <div class="titlebar">
+        <div class="titlebar-spacer"></div>
+        <div class="titlebar-controls">
+            <button class="titlebar-btn" id="minimizeBtn" type="button" aria-label="Küçült"><svg class="icon"><use href="#icon-minimize"></use></svg></button>
+            <button class="titlebar-btn close-app" id="closeAppBtn" type="button" aria-label="Kapat"><svg class="icon"><use href="#icon-x"></use></svg></button>
+        </div>
+    </div>
     <div class="fx-layer" id="fxA"><canvas id="matrixCanvas"></canvas></div>
     <div class="fx-layer" id="fxB"></div>
     <div class="fx-layer" id="fxC"><span></span><span></span><span></span></div>
@@ -346,36 +489,45 @@
     <div class="fx-layer" id="fxE"><span></span><span></span><span></span></div>
     <div class="fx-layer" id="fxF"></div>
 
-    <div class="content">
-        <div class="header">
-            <div class="logo-box">
-                <svg class="logo-a" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
-                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
-                    <path d="M9 21 h5 l2.5 -8 l3 15 l2.5 -10 l2 3 h6" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <svg class="logo-b" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
-                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
-                    <circle cx="20" cy="20" r="8"/><circle cx="20" cy="20" r="3.2"/>
-                    <path d="M20 8v4M20 28v4M8 20h4M28 20h4"/>
-                </svg>
-                <svg class="logo-c" viewBox="0 0 40 40">
-                    <defs><linearGradient id="logoGradC" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0" stop-color="#8b7bf5"/><stop offset="1" stop-color="#6bd9c9"/>
-                    </linearGradient></defs>
-                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z" fill="url(#logoGradC)" opacity="0.9"/>
-                    <circle cx="20" cy="19" r="4" fill="#fff" opacity="0.9"/>
-                </svg>
-            </div>
-            <div class="header-text">
-                <h1>Nexora Kontrol Merkezi<span class="ver" id="versionLabel"></span></h1>
-                <p>Ticket &amp; tarama otomasyonu</p>
-            </div>
-            <button class="icon-btn" id="settingsBtn" type="button" aria-label="Ayarlar">
-                <svg class="icon"><use href="#icon-settings"></use></svg>
-            </button>
-        </div>
+    <div class="app-shell">
+        <!-- Yan Panel yerleşimi: sadece data-layout="sidebar" iken görünür (bkz. CSS). -->
+        <nav class="side-rail">
+            <button class="rail-btn nav-target" data-section="tickets" type="button" aria-label="Ticketlar"><svg class="icon"><use href="#icon-ticket"></use></svg></button>
+            <button class="rail-btn nav-target" data-section="lookup" type="button" aria-label="Kimlik Sorgula"><svg class="icon"><use href="#icon-search"></use></svg></button>
+            <button class="rail-btn nav-target" data-section="status" type="button" aria-label="Durum"><svg class="icon"><use href="#icon-status"></use></svg></button>
+            <button class="rail-btn nav-target" data-section="settings" type="button" aria-label="Ayarlar"><svg class="icon"><use href="#icon-settings"></use></svg></button>
+        </nav>
 
-        <div id="mainView">
+        <!-- Liste + Detay yerleşimi: sadece data-layout="list-detail" iken görünür. -->
+        <aside class="ld-list">
+            <div class="ld-list-head">Ticketlar</div>
+            <div id="ldTicketList" class="ld-list-body"></div>
+        </aside>
+
+        <div class="content">
+            <div class="ld-tabs">
+                <button class="ld-tab nav-target" data-section="tickets" type="button"><svg class="icon"><use href="#icon-ticket"></use></svg>Ticket</button>
+                <button class="ld-tab nav-target" data-section="lookup" type="button"><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</button>
+                <button class="ld-tab nav-target" data-section="status" type="button"><svg class="icon"><use href="#icon-status"></use></svg>Durum</button>
+                <button class="ld-tab nav-target" data-section="settings" type="button"><svg class="icon"><use href="#icon-settings"></use></svg>Ayarlar</button>
+            </div>
+
+            <div class="header">
+                <div class="logo-box">
+                    <img src="logo.png" alt="MD PVP">
+                </div>
+                <div class="header-text">
+                    <h1>Nexora Kontrol Merkezi<span class="ver" id="versionLabel"></span></h1>
+                    <p>Ticket &amp; tarama otomasyonu</p>
+                </div>
+                <button class="icon-btn nav-target" id="settingsBtn" data-section="settings" type="button" aria-label="Ayarlar">
+                    <svg class="icon"><use href="#icon-settings"></use></svg>
+                </button>
+            </div>
+
+            <div id="mainView">
+            <div class="section-block" data-section="tickets">
+            <div class="ld-detail-info" id="ldDetailInfo"></div>
             <div class="card" id="ticketsCard">
                 <h2><svg class="icon"><use href="#icon-ticket"></use></svg>Aktif Ticketlar</h2>
                 <div id="ticketsList"></div>
@@ -390,7 +542,9 @@
                 <svg class="icon"><use href="#icon-ticket"></use></svg>
                 <p>Ticket bekleniyor...</p>
             </div>
+            </div>
 
+            <div class="section-block" data-section="lookup">
             <div class="card" id="lookupCard">
                 <h2><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</h2>
                 <div class="field">
@@ -425,18 +579,21 @@
 
                 <p class="hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
             </div>
+            </div>
 
+            <div class="section-block" data-section="status">
             <div class="card">
                 <h2><svg class="icon"><use href="#icon-status"></use></svg>Durum</h2>
                 <div class="status-row"><span class="status-dot warn" id="statusDiscordDot"></span><span>Discord</span><span class="status-text" id="statusDiscordText">Bağlanıyor...</span></div>
                 <div class="status-row"><span class="status-dot warn" id="statusNexoraDot"></span><span>Nexora API</span><span class="status-text" id="statusNexoraText">Kontrol ediliyor...</span></div>
                 <div class="status-row"><span class="status-dot warn" id="statusMobileDot"></span><span>Mobil Sunucu</span><span class="status-text" id="statusMobileText">Başlatılıyor...</span></div>
             </div>
+            </div>
         </div>
 
-        <div id="settingsView" style="display: none;">
+        <div id="settingsView" class="section-block" data-section="settings">
             <div class="settings-header">
-                <button class="icon-btn" id="backBtn" type="button" aria-label="Geri">
+                <button class="icon-btn nav-target" id="backBtn" data-section="tickets" type="button" aria-label="Geri">
                     <svg class="icon"><use href="#icon-back"></use></svg>
                 </button>
                 <h2 class="settings-title">Ayarlar</h2>
@@ -451,6 +608,15 @@
                     <button class="theme-btn" data-theme="d"><span class="swatch swatch-d"></span>Siyah</button>
                     <button class="theme-btn" data-theme="e"><span class="swatch swatch-e"></span>Beyaz</button>
                     <button class="theme-btn" data-theme="f"><span class="swatch swatch-f"></span>Siyah Kırmızı</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-layout"></use></svg>Panel Yerleşimi</h2>
+                <div class="layout-picker" id="layoutPicker">
+                    <button class="layout-btn" data-layout="classic">Klasik<span class="layout-desc">Dar, tek sütun (460×700)</span></button>
+                    <button class="layout-btn" data-layout="sidebar">Yan Panel<span class="layout-desc">Geniş, soldan ikon menülü (620×640)</span></button>
+                    <button class="layout-btn" data-layout="list-detail">Liste + Detay<span class="layout-desc">Geniş, soldan ticket listeli, sekmeli (700×620)</span></button>
                 </div>
             </div>
 
@@ -590,6 +756,7 @@
                 </div>
             </div>
         </div>
+        </div>
     </div>
 
     <svg style="position: absolute; width: 0; height: 0" aria-hidden="true">
@@ -603,6 +770,7 @@
             <symbol id="icon-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
             <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><rect x="9" y="9" width="12" height="12" rx="2"/></symbol>
             <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+            <symbol id="icon-minimize" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
             <symbol id="icon-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></symbol>
             <symbol id="icon-flag" viewBox="0 0 24 24"><path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/></symbol>
             <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></symbol>
@@ -621,6 +789,7 @@
             <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l2 2M14 9l2 2"/></symbol>
             <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M20 20l-5.5-5.5"/></symbol>
             <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.5 6.5a8 8 0 1 0 11 0"/></symbol>
+            <symbol id="icon-layout" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16"/></symbol>
         </defs>
     </svg>
 
