@@ -151,7 +151,6 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     addLookupRow('Discord', result.discord);
     addLookupRow('License', result.license);
     addLookupRow('IP', result.ip);
-    addLookupRow('Log ID', result.logId);
     addLookupRow('Rapor Türü', result.title);
     addLookupRow('Rapor Sayısı', String(result.reportCount || 1));
     if (result.lastSeenAt) {
