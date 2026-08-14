@@ -1,4 +1,4 @@
 {
-  "version": "1.13.1",
-  "changelog": "- Kimlik Sorgula'dan webhook-system kaynagi tamamen kaldirildi (eski/yanlis bilgi gosteriyordu)\n- Kimlik Sorgula'dan kill-log-hile kaynagi tamamen kaldirildi (eski bilgi gosteriyordu)\n- Artik sadece kill-log-1/2/3 + connections-webhook kullaniliyor"
+  "version": "1.14.0",
+  "changelog": "- Yeni MD PVP logosu (görev çubuğu dahil tüm ikonlar)\n- Özel başlık çubuğu ve kaydırma çubuğu (panelle birleşik görünüm)\n- 3 panel yerleşimi eklendi: Klasik, Yan Panel, Liste + Detay (Ayarlar > Panel Yerleşimi'nden seçilebilir)\n- Liste + Detay'da ticket başına otomatik kimlik bilgisi (Oyun İçi ID, License, Discord, Steam, son bağlantı/ban notu)\n- Kimlik Sorgula'dan güncel olmayan/yanıltıcı ban durumu ve webhook-system kaynağı kaldırıldı\n- \"!id\" komutu 5 kanalda aktif, çoklu bot çakışmasını önleyen mekanizma eklendi\n- Ticket açılışında canlı yakalanamayan lisans/oyun içi ID artık geçmişten otomatik bulunuyor (Ban akışındaki bir hatayı da düzeltti)"
 }
