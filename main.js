@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.12.1';
+const CURRENT_VERSION = '1.13.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -486,6 +486,11 @@ ipcMain.on('ac-call', async (event, target) => {
     if (mainWindow) mainWindow.webContents.send('ac-call-result', result);
 });
 
+ipcMain.on('ac-call-spam', async (event, target) => {
+    const result = await performAcCallSpam(target || {});
+    if (mainWindow) mainWindow.webContents.send('ac-call-spam-result', result);
+});
+
 ipcMain.on('lookup-fg-ban', async (event, payload) => {
     const result = await performLookupFgBan(payload || {});
     if (mainWindow) mainWindow.webContents.send('lookup-fg-ban-result', result);
@@ -838,6 +843,58 @@ async function performAcCall({ discord, license, playerId, name, count, force })
     }
 }
 
+// "Spam" - AC Çağır'ın agresif versiyonu: AC duyuru kanalına HİÇ yazmadan (kullanıcı
+// isteği - orası kirlenmesin diye), sadece ac-komut kanalına SPAM_DM_COUNT kadar
+// "/dm-player" komutunu HEPSİNİ AYNI ANDA (paralel, Promise.all) gönderip oyuncuya
+// doğrudan o kadar AC mesajı ulaştırır - kullanıcı "yavaş atıyo, anında atsın"
+// dediği için sıralı+beklemeli döngü (eskiden aralarda 700ms vardı) kaldırıldı.
+// "/dm-player" oyunda olmayı gerektirdiği için Player ID şart - yoksa gönderilemez.
+const SPAM_DM_COUNT = 10;
+
+async function performAcCallSpam({ discord, license, playerId, name }) {
+    if (!playerId) {
+        console.log(`[AC Spam] Oyun içi ID yok (${name || discord || license || 'bilinmiyor'}), spam gönderilemedi.`);
+        return { success: false, reason: 'insufficient', message: 'Oyun içi ID yok - kişi şu an oyunda değil, spam gönderilemedi.' };
+    }
+
+    const cooldownKey = discord || license || playerId;
+    const lastCallAt = acCallCooldown.get(cooldownKey);
+    if (lastCallAt && Date.now() - lastCallAt < AC_CALL_COOLDOWN_MS) {
+        console.log(`[AC Spam] ${cooldownKey} için ${AC_CALL_COOLDOWN_MS}ms içinde tekrar istek geldi, çift gönderim koruması devrede - engellendi.`);
+        return {
+            success: false,
+            reason: 'cooldown',
+            message: `Bu kişi için ${Math.ceil(AC_CALL_COOLDOWN_MS / 1000)} saniye önce zaten bir çağrı/spam gönderildi - kısa bir süre bekleyip tekrar dene.`,
+        };
+    }
+    acCallCooldown.set(cooldownKey, Date.now());
+
+    const komutChannel = client.channels.cache.get(AC_KOMUT_CHANNEL_ID);
+    if (!komutChannel) {
+        return { success: false, reason: 'error', message: `ac-komut kanalı bulunamadı (${AC_KOMUT_CHANNEL_ID})` };
+    }
+
+    try {
+        const outcomes = await Promise.allSettled(
+            Array.from({ length: SPAM_DM_COUNT }, () => komutChannel.sendSlash(FG_BOT_ID, 'dm-player', playerId, acMessage))
+        );
+        const sent = outcomes.filter((o) => o.status === 'fulfilled').length;
+        console.log(`[AC Spam] ${name || discord || playerId} için ${sent}/${SPAM_DM_COUNT} adet /dm-player (paralel) gönderildi.`);
+        if (discord || license) watchForDisconnectionAfterAcCall({ discord, license, name });
+
+        if (sent === 0) {
+            const firstError = outcomes.find((o) => o.status === 'rejected');
+            const errorMessage = firstError?.reason?.message || 'bilinmeyen hata';
+            console.log(`[Hata] AC Spam: ${errorMessage}`);
+            return { success: false, reason: 'error', message: `Gönderilirken hata oluştu: ${errorMessage}` };
+        }
+        return { success: true, message: `${sent}/${SPAM_DM_COUNT} adet AC mesajı gönderildi.` };
+    } catch (error) {
+        console.log(`[Hata] AC Spam: ${error.message}`);
+        return { success: false, reason: 'error', message: `Gönderilirken hata oluştu: ${error.message}` };
+    }
+}
+
 // AC çağrılan kişiyi 3 dakika boyunca connections-webhook'ta CANLI izler (tarama
 // değil, messageCreate event'ine geçici bir dinleyici eklenip süre dolunca ya da
 // eşleşme bulununca kaldırılıyor) - sunucudan çıkarsa (normal ya da ban ile) Windows
@@ -1104,6 +1161,20 @@ const mobileServer = http.createServer(async (req, res) => {
         }
     }
 
+    if (req.method === 'POST' && reqUrl.pathname === '/api/ac-call-spam') {
+        if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        let target = {};
+        try { target = JSON.parse(body || '{}'); } catch (e) {}
+        try {
+            const result = await performAcCallSpam(target);
+            return sendJson(res, 200, result);
+        } catch (error) {
+            return sendJson(res, 500, { success: false, message: error.message });
+        }
+    }
+
     if (req.method === 'POST' && reqUrl.pathname === '/api/lookup-fg-ban') {
         if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
         let body = '';
@@ -1350,6 +1421,12 @@ function extractSuspiciousIdentifier(embed) {
 // license ile steam/discord/ip'sini verir. Yerel kayıtta yoksa bu iki kaynağı
 // istek üzerine (sadece sorgulandığında) tarıyoruz - arka planda sürekli çekmiyoruz.
 const KILL_LOG_CHANNEL_IDS = ['1470948766340223188', '1492906523603636484', '1492906545342578748'];
+// "MD PVP SYSTEM" botunun şüpheli silah tespitiyle OTOMATİK banladığı kill'ler - normal
+// kill-log ile BİREBİR AYNI embed formatında (parseKillLogEntries ekstra değişiklik
+// gerekmeden çalışıyor), ayrı bir kanalda çünkü sadece FLAGLI/otomatik-banlanmış kill'ler
+// burada. Kullanıcı isteğiyle Kimlik Sorgula'ya SESSİZ bir kaynak olarak eklendi (bildirim
+// YOK, sadece arandığında ekstra veri/eşleşme kaynağı).
+const KILL_LOG_HILE_CHANNEL_ID = '1494711362838990949';
 const CONNECTIONS_WEBHOOK_CHANNEL_ID = '1513234125337919610';
 // Mesaj sayısı yerine ZAMAN bütçesiyle sınırlıyoruz - kanallar çok yoğun olabildiği
 // için sabit bir mesaj sayısı bazen yetersiz kalıyordu. Kullanıcı isteğiyle bir
@@ -1359,10 +1436,59 @@ const CONNECTIONS_WEBHOOK_CHANNEL_ID = '1513234125337919610';
 const LOOKUP_SCAN_TIME_BUDGET_MS = 30000; // 1. adım: kill-log/webhook-system/connections-webhook ilk tarama
 const LOOKUP_VERIFY_TIME_BUDGET_MS = 30000; // 2. adım: doğrulama taraması (license/Player ID teyidi)
 const LOOKUP_SCAN_PAGE_DELAY_MS = 150; // sayfalar arası rate-limit'e nazik bekleme
+// Player ID akışında webhook-system SADECE ek zenginleştirme kaynağı (asıl gerekli
+// olan license kill-log'dan geliyor) - ama çoğu oyuncu hiç şüpheli bulunmamış
+// olduğu için webhook-system'da neredeyse HİÇBİR ZAMAN bulunamıyor, bu da
+// Promise.all yüzünden kill-log çoktan bitmiş olsa bile TÜM sorguyu 30sn'ye kadar
+// bekletiyordu (canlı testte doğrulandı - "64"/"925" gibi ID'ler 30sn sürdü).
+// Bu yüzden bu özel paralel kontrolde çok daha kısa bir bütçe kullanılıyor.
+const LOOKUP_WEBHOOK_SYSTEM_PARALLEL_BUDGET_MS = 4000;
+
+// Discord'un kendi mesaj arama API'si (kütüphanede zaten VARDI, MessageManager.search() -
+// versiyon yükseltmeye gerek yok, hiç denenmemişti çünkü "botlar embed gönderdiği için
+// içerik boş olur, muhtemelen bulamaz" diye TAHMİN edilip kullanılmamıştı, gerçek testle
+// doğrulanmamıştı). Şimdi HIZLI YOL olarak deneniyor: bulursa (ve matchFn eşleşirse) süre
+// bütçesi hiç harcanmadan anında dönüyor. Bulamazsa/hata verirse (izin, embed içeriği
+// gerçekten indekslenmiyor, rate limit vb.) SESSİZCE aşağıdaki eski sayfalama taramasına
+// düşülüyor - mevcut güvenilirlik korunuyor, sadece "önce dene" katmanı eklendi.
+// NOT: search() endpoint'i Discord'da ayrı ve DAHA SIKI rate limitli - o yüzden sorgu
+// başına sadece BİR deneme yapılıyor (arka arkaya tekrar denenmiyor).
+async function trySearchChannel(channelId, searchQuery, matchFn) {
+    if (!searchQuery) return null;
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return null;
+    try {
+        // ÖNEMLİ: kütüphanenin search()'ü guild kanalları için GUILD GENELİNDE arama
+        // endpoint'ini kullanıyor (client.api.guilds[id].messages.search) - "channels"
+        // filtresi elle verilmezse arama TÜM SUNUCUDA yapılıyor, sadece bu kanalda değil!
+        // Canlı testte bu yüzden connections-webhook'ta license ararken YANLIŞLIKLA
+        // kill-log kanalından bir mesaj eşleşip yanlış "stale" sonucu üretti. "channels"
+        // parametresiyle arama gerçekten SADECE bu kanala sabitleniyor.
+        const { messages } = await channel.messages.search({ content: searchQuery, channels: [channelId], limit: 25 });
+        for (const message of messages.values()) {
+            const result = matchFn(message);
+            if (result) {
+                console.log(`[Kimlik Sorgula] "${channel.name}": native search ile anında bulundu ("${searchQuery}").`);
+                return result;
+            }
+        }
+        console.log(`[Kimlik Sorgula] "${channel.name}": native search "${searchQuery}" için ${messages.size} sonuç döndü ama eşleşme yok, sayfalama taramasına düşülüyor.`);
+    } catch (error) {
+        console.log(`[Kimlik Sorgula] "${channel.name}": native search kullanılamadı (${error.message}), sayfalama taramasına düşülüyor.`);
+    }
+    return null;
+}
 
 // Bir kanalın geçmişini 100'erli sayfalar hâlinde (en yeniden eskiye) süre
 // dolana kadar tarar, matchFn ilk gerçek (falsy olmayan) sonucu döndürdüğünde durur.
-async function scanChannelHistory(channelId, matchFn, timeBudgetMs = LOOKUP_SCAN_TIME_BUDGET_MS) {
+// "searchQuery" verilirse trySearchChannel ile hızlı yol denenir - ama SIRA ÖNEMLİ:
+// önce her zaman en taze 100 mesaj (tek istek, ucuz) doğrudan çekilip kontrol
+// ediliyor, search bundan SONRA deneniyor. Sebep: canlı testte "kişi az önce
+// bağlandı, hâlâ oyunda" gibi ÇOK TAZE olaylarda native search'ün Discord'un
+// arama indeksindeki gecikme yüzünden bu en yeni mesajı henüz bulamayıp bir
+// ÖNCEKİ (eski) eşleşmeyi döndürdüğü, bunun da "online" durumunu YANLIŞ
+// (stale) hesaplattığı görüldü - ilk sayfa kontrolü bunu garanti altına alıyor.
+async function scanChannelHistory(channelId, matchFn, timeBudgetMs = LOOKUP_SCAN_TIME_BUDGET_MS, searchQuery = null) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) {
         console.log(`[Kimlik Sorgula] Kanal bulunamadı: ${channelId}`);
@@ -1374,6 +1500,35 @@ async function scanChannelHistory(channelId, matchFn, timeBudgetMs = LOOKUP_SCAN
     let before;
     let pages = 0;
     let scanned = 0;
+
+    // 1. adım: en taze 100 mesaj (tek istek) - search'ün indeksleme gecikmesine karşı.
+    let firstBatch;
+    try {
+        firstBatch = await channel.messages.fetch({ limit: 100 });
+    } catch (error) {
+        console.log(`[Kimlik Sorgula] "${channel.name}" ilk sayfa çekilemedi: ${error.message}`);
+        return null;
+    }
+    pages = 1;
+    scanned = firstBatch.size;
+    for (const message of firstBatch.values()) {
+        const result = matchFn(message);
+        if (result) {
+            console.log(`[Kimlik Sorgula] "${channel.name}": en taze sayfada eşleşme bulundu (${Date.now() - startedAt}ms).`);
+            return result;
+        }
+    }
+    if (firstBatch.size < 100) {
+        console.log(`[Kimlik Sorgula] "${channel.name}": eşleşme bulunamadı (kanalın tamamı ${firstBatch.size} mesaj, ${Date.now() - startedAt}ms).`);
+        return null; // kanalın başına gelindi, aramaya/sayfalamaya gerek yok
+    }
+    before = firstBatch.last().id;
+
+    // 2. adım: ilk sayfada yoksa (daha eski bir olay olabilir) native search dene.
+    const searchHit = await trySearchChannel(channelId, searchQuery, matchFn);
+    if (searchHit) return searchHit;
+
+    // 3. adım: search de bulamazsa/hata verirse, 2. sayfadan itibaren sayfalamaya devam.
     while (Date.now() < deadline) {
         let batch;
         try {
@@ -1452,22 +1607,44 @@ function firstNonNull(promises) {
 }
 
 async function findInKillLogs({ playerId, license, timeBudgetMs } = {}) {
+    // ÖNEMLİ: bot art arda gelen kill'leri TEK mesajda BİRDEN FAZLA embed olarak
+    // (mesaj başına 10'a kadar) topluca gönderiyor (kullanıcı canlı ekran görüntüsüyle
+    // gösterdi - görünürde "ayrı kartlar" gibi duran şeyler aslında hepsi AYNI mesajın
+    // embed'leri). Eskiden sadece message.embeds[0]'a bakılıyordu, o mesajdaki diğer
+    // 9 kill event'i (ve içindeki Player ID'ler) SESSİZCE atlanıyordu - Player ID
+    // aramasının yavaş/başarısız olmasının asıl sebebi buydu. Artık mesajdaki TÜM
+    // embed'ler taranıyor.
     const matchFn = (message) => {
-        const embed = message.embeds?.[0];
-        const entries = parseKillLogEntries(embed);
-        const match = entries.find(
-            (e) => (playerId && e.playerId === playerId) || (license && e.license === license)
-        );
-        if (match && !match.license) {
-            const rawFields = (embed?.fields || []).map((f) => `[${f.name}] ${f.value}`.slice(0, 90)).join(' || ');
-            console.log(`[Kimlik Sorgula] UYARI: ${match.name} (ID: ${match.playerId}) için license bulunamadı. Ham alanlar: ${rawFields}`);
+        for (const embed of message.embeds || []) {
+            const entries = parseKillLogEntries(embed);
+            const match = entries.find(
+                (e) => (playerId && e.playerId === playerId) || (license && e.license === license)
+            );
+            if (match) {
+                if (!match.license) {
+                    const rawFields = (embed?.fields || []).map((f) => `[${f.name}] ${f.value}`.slice(0, 90)).join(' || ');
+                    console.log(`[Kimlik Sorgula] UYARI: ${match.name} (ID: ${match.playerId}) için license bulunamadı. Ham alanlar: ${rawFields}`);
+                }
+                return match;
+            }
         }
-        return match || null;
+        return null;
     };
+    const searchQuery = license || playerId || null;
+    // kill-log-hile de AYNI matchFn ile taranıyor ama hangi kanaldan geldiğini ("flagged")
+    // işaretleyip sonuca farklı bir başlık koyuyoruz - normal kill'le otomatik-banlanmış
+    // şüpheli kill'i ayırt edebilmek için.
+    const allChannelIds = [...KILL_LOG_CHANNEL_IDS, KILL_LOG_HILE_CHANNEL_ID];
     const hit = await firstNonNull(
-        KILL_LOG_CHANNEL_IDS.map((channelId) => scanChannelHistory(channelId, matchFn, timeBudgetMs))
+        allChannelIds.map((channelId) =>
+            scanChannelHistory(channelId, matchFn, timeBudgetMs, searchQuery).then((result) =>
+                result ? { ...result, flagged: channelId === KILL_LOG_HILE_CHANNEL_ID } : null
+            )
+        )
     );
-    return hit ? { ...hit, title: 'Kill Log' } : null;
+    return hit
+        ? { ...hit, title: hit.flagged ? 'Kill Log (Şüpheli Silah - Otomatik Banlandı)' : 'Kill Log' }
+        : null;
 }
 
 // connections-webhook embed'i field değil, tek bir metin bloğu (description) -
@@ -1519,15 +1696,22 @@ async function findInConnectionsWebhook({ playerId, license, discordId, name, ti
     return scanChannelHistory(
         CONNECTIONS_WEBHOOK_CHANNEL_ID,
         (message) => {
-            const entry = parseConnectionsWebhookEntry(message.embeds?.[0]);
-            if (!entry) return null;
-            if (license && entry.license === license) return entry;
-            if (playerId && entry.playerId === playerId) return entry;
-            if (discordId && entry.discord === discordId) return entry;
-            if (name && entry.name && entry.name.toLowerCase() === name.toLowerCase()) return entry;
+            // Kill-log'daki AYNI hatayı burada da tekrarlamamak için (bkz. findInKillLogs
+            // notu) mesajdaki TÜM embed'ler taranıyor, sadece embeds[0] değil - bu kanal
+            // şu an tek-olay-tek-mesaj gibi görünse de bot ileride toplu göndermeye
+            // başlarsa (kill-log gibi) sessizce bozulmasın diye savunma amaçlı.
+            for (const embed of message.embeds || []) {
+                const entry = parseConnectionsWebhookEntry(embed);
+                if (!entry) continue;
+                if (license && entry.license === license) return entry;
+                if (playerId && entry.playerId === playerId) return entry;
+                if (discordId && entry.discord === discordId) return entry;
+                if (name && entry.name && entry.name.toLowerCase() === name.toLowerCase()) return entry;
+            }
             return null;
         },
-        timeBudgetMs
+        timeBudgetMs,
+        license || discordId || playerId || name || null
     );
 }
 
@@ -1537,34 +1721,41 @@ async function findInConnectionsWebhook({ playerId, license, discordId, name, ti
 // iki kaynaktan (kill-log, connections-webhook) daha zengin - ama sadece
 // ŞÜPHELİ bulunmuş oyuncuları kapsıyor (herkesi değil, bu yüzden diğer
 // kaynakların YERİNE değil, YANINDA kullanılıyor).
-async function findInWebhookSystem({ playerId, license, discordId, name } = {}) {
-    return scanChannelHistory(SUSPICIOUS_CHANNEL_ID, (message) => {
-        const embed = message.embeds?.[0];
-        if (!embed) return null;
+async function findInWebhookSystem({ playerId, license, discordId, name, timeBudgetMs } = {}) {
+    return scanChannelHistory(
+        SUSPICIOUS_CHANNEL_ID,
+        (message) => {
+            // Kill-log'daki AYNI hatayı burada da tekrarlamamak için (bkz. findInKillLogs
+            // notu) mesajdaki TÜM embed'ler taranıyor, sadece embeds[0] değil.
+            for (const embed of message.embeds || []) {
+                const entryPlayerId = findEmbedField(embed, /player\s*id/i);
+                const entryLicense = findEmbedField(embed, /license/i);
+                const rawDiscord = findEmbedField(embed, /^discord$/i);
+                const entryDiscordId = rawDiscord ? (rawDiscord.match(/\d+/) || [])[0] || null : null;
+                const entryName = findEmbedField(embed, /^name$/i);
 
-        const entryPlayerId = findEmbedField(embed, /player\s*id/i);
-        const entryLicense = findEmbedField(embed, /license/i);
-        const rawDiscord = findEmbedField(embed, /^discord$/i);
-        const entryDiscordId = rawDiscord ? (rawDiscord.match(/\d+/) || [])[0] || null : null;
-        const entryName = findEmbedField(embed, /^name$/i);
+                const matches =
+                    (license && entryLicense === license) ||
+                    (playerId && entryPlayerId === playerId) ||
+                    (discordId && entryDiscordId === discordId) ||
+                    (name && entryName && entryName.toLowerCase() === name.toLowerCase());
+                if (!matches) continue;
 
-        const matches =
-            (license && entryLicense === license) ||
-            (playerId && entryPlayerId === playerId) ||
-            (discordId && entryDiscordId === discordId) ||
-            (name && entryName && entryName.toLowerCase() === name.toLowerCase());
-        if (!matches) return null;
-
-        return {
-            name: entryName,
-            steam: findEmbedField(embed, /steam/i),
-            discord: entryDiscordId,
-            license: entryLicense,
-            playerId: entryPlayerId,
-            logId: findEmbedField(embed, /log\s*id/i),
-            title: stripDiscordMarkup(embed.title) || 'Şüpheli Aktivite',
-        };
-    });
+                return {
+                    name: entryName,
+                    steam: findEmbedField(embed, /steam/i),
+                    discord: entryDiscordId,
+                    license: entryLicense,
+                    playerId: entryPlayerId,
+                    logId: findEmbedField(embed, /log\s*id/i),
+                    title: stripDiscordMarkup(embed.title) || 'Şüpheli Aktivite',
+                };
+            }
+            return null;
+        },
+        timeBudgetMs,
+        license || discordId || playerId || name || null
+    );
 }
 
 // Sorgu metninden tür tahmini: "license:" ile başlıyorsa license, sadece
@@ -1604,7 +1795,7 @@ async function resolvePlayerIdentity(query) {
         console.log(`[Kimlik Sorgula] Player ID ${q} için kill-log VE webhook-system paralel taranıyor...`);
         const [killHit, suspiciousHit] = await Promise.all([
             findInKillLogs({ playerId: q }),
-            findInWebhookSystem({ playerId: q }),
+            findInWebhookSystem({ playerId: q, timeBudgetMs: LOOKUP_WEBHOOK_SYSTEM_PARALLEL_BUDGET_MS }),
         ]);
         const license = killHit?.license || suspiciousHit?.license;
         if (!license) {
@@ -1623,7 +1814,7 @@ async function resolvePlayerIdentity(query) {
             license,
             ip: connHit?.ip || null,
             logId: suspiciousHit?.logId || null,
-            title: suspiciousHit?.title || 'Kill Log',
+            title: suspiciousHit?.title || killHit?.title || 'Kill Log',
             lastSeenAt: new Date().toISOString(),
             reportCount: 1,
             stale: !connHit?.online,
@@ -1649,7 +1840,7 @@ async function resolvePlayerIdentity(query) {
     const connQuery = type === 'discordId' ? { discordId: q } : type === 'license' ? { license: q } : { name: q };
     const [connHit, suspiciousHit] = await Promise.all([
         findInConnectionsWebhook({ ...connQuery, timeBudgetMs: LOOKUP_SCAN_TIME_BUDGET_MS }),
-        findInWebhookSystem(connQuery),
+        findInWebhookSystem({ ...connQuery, timeBudgetMs: LOOKUP_WEBHOOK_SYSTEM_PARALLEL_BUDGET_MS }),
     ]);
     if (!connHit && !suspiciousHit) {
         console.log(`[Kimlik Sorgula] "${q}" ne connections-webhook'ta ne webhook-system'da bulunamadı.`);
@@ -1686,6 +1877,90 @@ async function resolvePlayerIdentity(query) {
     };
 
     return merged;
+}
+
+// --- "!id <sorgu>" KOMUTU (yetkili sohbet/bot-komut kanalları) ---
+// Bu botu kullanan birkaç arkadaşın kendi bot instance'ı da AYNI kanalları dinliyor -
+// biri "!id 256" yazınca hepsi aynı anda görüyor, hepsi cevap verirse aynı sonuç 5 kez
+// yazılmış olur. Discord'un KENDİ reaction sistemi paylaşılan/görünür bir "kilit" gibi
+// kullanılıyor: komutu gören her instance kısa rastgele bir gecikme bekleyip (çakışma
+// ihtimalini azaltmak için) mesajı TAZE çekip CLAIM_EMOJI reaction'ı var mı diye bakıyor -
+// varsa (başka biri zaten üstlenmiş) hiçbir şey yapmadan çıkıyor, yoksa HEMEN kendi
+// reaction'ını ekleyip (bu andan sonra diğer tüm instance'lar bunu görüp çekilir) sorguyu
+// çözüp cevabı mesaja REPLY olarak atıyor. Sorgu uzun sürebildiği için (60sn'ye kadar)
+// önce reaction ile "üstlendim" işareti koymak şart - sadece "cevap var mı" diye bakmak
+// yetmezdi (iki bot da cevap gelmeden aynı anda "henüz cevap yok" görüp ikisi de arardı).
+const ID_COMMAND_CHANNEL_IDS = ['1475520758095544490', '1470230482649223197', '1470230478274564289', '1502372307887194132'];
+const ID_COMMAND_CLAIM_EMOJI = '🔍';
+
+function formatIdCommandResult(query, result) {
+    if (!result) return `❌ "${query}" için sonuç bulunamadı.`;
+    const lines = [`🔎 **Kimlik Sorgu Sonucu** ("${query}")`];
+    if (result.playerId) lines.push(`Oyun İçi ID: ${result.playerId}`);
+    if (result.name) lines.push(`İsim: ${result.name}`);
+    if (result.steam) lines.push(`Steam: ${result.steam}`);
+    if (result.discord) lines.push(`Discord: <@${result.discord}>`);
+    if (result.license) lines.push(`License: ${result.license}`);
+    if (result.staleNote) lines.push(`⚠️ ${result.staleNote}`);
+    return lines.join('\n');
+}
+
+async function handleIdCommand(message, query) {
+    // Rastgele mikro-gecikme (100-900ms) - tüm instance'lar komutu AYNI ANDA görüyor,
+    // bu gecikme "hepsi aynı milisaniyede reaction eklemeye çalışır" çakışmasını azaltır
+    // ama TEK BAŞINA yeterli değil (standalone testte 5 instance'la ~%57 ihtimalle
+    // birden fazlası claim edebiliyordu - check ile react arasındaki ağ gecikmesi
+    // penceresinde iki instance da "henüz kimse almamış" görebiliyor). Bu yüzden
+    // aşağıda bir de DETERMİNİSTİK TIE-BREAK adımı var.
+    await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 900));
+
+    try {
+        const fresh = await message.fetch(); // reaction durumunu TAZE almak için şart
+        const alreadyClaimed = fresh.reactions.cache.some((r) => r.emoji.name === ID_COMMAND_CLAIM_EMOJI);
+        if (alreadyClaimed) {
+            console.log(`[!id] "${query}" için başka bir instance zaten üstlenmiş, atlanıyor.`);
+            return;
+        }
+        await message.react(ID_COMMAND_CLAIM_EMOJI);
+    } catch (error) {
+        console.log(`[!id] Claim aşamasında hata: ${error.message}`);
+        return;
+    }
+
+    // "Sakinleşme" süresi - neredeyse aynı anda birden fazla instance da claim etmiş
+    // olabilir (yukarıdaki check+react arasındaki dar ağ gecikmesi penceresi yüzünden).
+    // Kısa bir süre bekleyip mesajı TEKRAR taze çekiyoruz - bu sürede diğer olası
+    // claim'ler de Discord'a işlenmiş olur. Reaction sayısı 1'den fazlaysa (birden
+    // fazla instance claim etmiş), DETERMİNİSTİK bir kazanan seçiyoruz (en küçük
+    // Discord kullanıcı ID'si - herkes AYNI hesaplamayı yapıp AYNI sonuca varıyor,
+    // ekstra iletişime gerek kalmadan) - kaybedenler sessizce çekiliyor.
+    await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+    try {
+        const settled = await message.fetch();
+        const reaction = settled.reactions.cache.find((r) => r.emoji.name === ID_COMMAND_CLAIM_EMOJI);
+        if (reaction && reaction.count > 1) {
+            const users = await reaction.users.fetch();
+            const winnerId = [...users.keys()].reduce((min, id) => (BigInt(id) < BigInt(min) ? id : min));
+            if (winnerId !== client.user.id) {
+                console.log(`[!id] "${query}" için ${users.size} instance aynı anda üstlenmiş, tie-break kaybedildi (kazanan: ${winnerId}) - çekiliyorum.`);
+                return;
+            }
+            console.log(`[!id] "${query}" için ${users.size} instance aynı anda üstlenmiş, tie-break kazanıldı - devam ediliyor.`);
+        }
+    } catch (error) {
+        console.log(`[!id] Tie-break kontrolü yapılamadı (${error.message}), yine de devam ediliyor.`);
+    }
+
+    console.log(`[!id] "${query}" sorgusu üstlenildi, aranıyor...`);
+    try {
+        const result = await resolvePlayerIdentity(query);
+        await message.reply(formatIdCommandResult(query, result));
+    } catch (error) {
+        console.log(`[Hata] !id "${query}": ${error.message}`);
+        try {
+            await message.reply(`⚠️ "${query}" aranırken bir hata oluştu: ${error.message}`);
+        } catch (e) { /* cevap da atılamadıysa yapacak bir şey yok */ }
+    }
 }
 
 // Bu kişinin daha önce kaç kez düştüğünü (son 50 rapor içinde) kayan pencereye
@@ -1922,6 +2197,14 @@ client.on('messageCreate', async (message) => {
     if (message.channel.id === FIVEGUARD_CHANNEL_ID && message.author.id === FIVEGUARD_BOT_ID) {
         const report = recordFiveguardReport(message);
         if (report) showFiveguardNotification(report);
+    }
+
+    // --- "!id <sorgu>" KOMUTU ---
+    if (ID_COMMAND_CHANNEL_IDS.includes(message.channel.id) && !message.author.bot) {
+        const idMatch = message.content.trim().match(/^!id\s+(\S+)/i);
+        if (idMatch) {
+            handleIdCommand(message, idMatch[1]); // await YOK - dinleyiciyi bloklamasın, hata da kendi içinde yakalanıyor
+        }
     }
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
