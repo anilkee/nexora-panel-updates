@@ -1,4 +1,4 @@
 {
-  "version": "1.13.0",
-  "changelog": "- Kimlik Sorgula: kill-log-hile (supheli silah/otomatik ban) sessiz kaynak olarak eklendi\n- native search kanal-scoping bug fix (yanlislikla sunucu genelinde ariyordu)\n- Discord'da Ac butonu ticket kartlarina eklendi\n- YENI: !id <sorgu> komutu (ac-komut/ac-sohbet/bot-komut/bot-yazi kanallarinda), coklu-bot cakisma korumali (reaction tabanli dagitik kilit + tie-break)\n- AC Spam (10x) butonu eklendi, paralel gonderim\n- FeloxAC ban durumu gosterimi eklenip sonra kaldirildi (yaniltici cikti)"
+  "version": "1.13.1",
+  "changelog": "- Kimlik Sorgula'dan webhook-system kaynagi tamamen kaldirildi (eski/yanlis bilgi gosteriyordu)\n- Kimlik Sorgula'dan kill-log-hile kaynagi tamamen kaldirildi (eski bilgi gosteriyordu)\n- Artik sadece kill-log-1/2/3 + connections-webhook kullaniliyor"
 }
