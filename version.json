@@ -1,4 +1,4 @@
 {
-  "version": "1.12.1",
-  "changelog": "- Fiveguard: video eki iceren mesajlar artik yanlislikla bildirim/sayaca girmiyor\n- Supheli Aktivite ve Fiveguard bildirimlerine tiklayinca artik ticket panelindeki 'Discord'da Ac' butonuyla ayni hizda aciliyor (mesaj ID'siz, sadece kanala gidiyor)"
+  "version": "1.13.0",
+  "changelog": "- Kimlik Sorgula: kill-log-hile (supheli silah/otomatik ban) sessiz kaynak olarak eklendi\n- native search kanal-scoping bug fix (yanlislikla sunucu genelinde ariyordu)\n- Discord'da Ac butonu ticket kartlarina eklendi\n- YENI: !id <sorgu> komutu (ac-komut/ac-sohbet/bot-komut/bot-yazi kanallarinda), coklu-bot cakisma korumali (reaction tabanli dagitik kilit + tie-break)\n- AC Spam (10x) butonu eklendi, paralel gonderim\n- FeloxAC ban durumu gosterimi eklenip sonra kaldirildi (yaniltici cikti)"
 }
