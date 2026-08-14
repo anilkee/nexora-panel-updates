@@ -120,14 +120,8 @@
         .content { position: relative; z-index: 1; }
 
         .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-        .logo-box { width: 32px; height: 32px; flex-shrink: 0; position: relative; color: var(--accent); }
-        .logo-box svg { width: 100%; height: 100%; position: absolute; inset: 0; display: none; }
-        body[data-theme="a"] .logo-box .logo-a,
-        body[data-theme="b"] .logo-box .logo-b,
-        body[data-theme="c"] .logo-box .logo-c,
-        body[data-theme="d"] .logo-box .logo-a,
-        body[data-theme="e"] .logo-box .logo-a,
-        body[data-theme="f"] .logo-box .logo-a { display: block; }
+        .logo-box { width: 32px; height: 32px; flex-shrink: 0; position: relative; }
+        .logo-box img { width: 100%; height: 100%; object-fit: contain; display: block; }
         .header h1 { font-family: var(--font-display); font-size: 16px; margin: 0; color: var(--text-hi); font-weight: 600; }
         body[data-theme="b"] .header h1 { text-transform: uppercase; letter-spacing: .05em; }
         .header p { font-size: 12px; color: var(--text-lo); margin: 2px 0 0; }
@@ -257,22 +251,7 @@
     <div class="content">
         <div class="header">
             <div class="logo-box">
-                <svg class="logo-a" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
-                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
-                    <path d="M9 21 h5 l2.5 -8 l3 15 l2.5 -10 l2 3 h6" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <svg class="logo-b" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6">
-                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z"/>
-                    <circle cx="20" cy="20" r="8"/><circle cx="20" cy="20" r="3.2"/>
-                    <path d="M20 8v4M20 28v4M8 20h4M28 20h4"/>
-                </svg>
-                <svg class="logo-c" viewBox="0 0 40 40">
-                    <defs><linearGradient id="logoGradCM" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0" stop-color="#8b7bf5"/><stop offset="1" stop-color="#6bd9c9"/>
-                    </linearGradient></defs>
-                    <path d="M20 4 L33 9 V20 C33 28 27.5 33.5 20 36 C12.5 33.5 7 28 7 20 V9 Z" fill="url(#logoGradCM)" opacity="0.9"/>
-                    <circle cx="20" cy="19" r="4" fill="#fff" opacity="0.9"/>
-                </svg>
+                <img src="/logo.png" alt="MD PVP">
             </div>
             <div>
                 <h1>Nexora Mobil Panel</h1>
