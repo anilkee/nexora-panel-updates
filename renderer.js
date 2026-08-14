@@ -61,6 +61,7 @@ const lookupBtn = document.getElementById('lookupBtn');
 const lookupResult = document.getElementById('lookupResult');
 const lookupEmpty = document.getElementById('lookupEmpty');
 const acCallBtn = document.getElementById('acCallBtn');
+const acSpamBtn = document.getElementById('acSpamBtn');
 const acCallCountRow = document.getElementById('acCallCountRow');
 const acCall1xBtn = document.getElementById('acCall1xBtn');
 const acCall2xBtn = document.getElementById('acCall2xBtn');
@@ -119,6 +120,7 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     lookupResult.innerHTML = '';
     currentLookupResult = result;
     acCallSending = false;
+    acSpamSending = false;
     acCallStatus.style.display = 'none';
     acCallCountRow.style.display = 'none';
     acCallForceBtn.style.display = 'none';
@@ -132,6 +134,7 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
         lookupEmpty.textContent = 'Kayıt bulunamadı.';
         lookupEmpty.style.display = 'block';
         acCallBtn.style.display = 'none';
+        acSpamBtn.style.display = 'none';
         return;
     }
     lookupEmpty.style.display = 'none';
@@ -158,6 +161,8 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
     acCallBtn.disabled = false;
     setButtonLabel(acCallBtn, 'AC Çağır');
     acCallBtn.style.display = 'flex';
+    // Spam da "/dm-player" kullanıyor - o yüzden AYNI şart (oyun içi ID) geçerli.
+    acSpamBtn.style.display = result.playerId ? 'flex' : 'none';
 
     // "fg ban" oyun içi ID ister - kişi online değilse/ID bilinmiyorsa sadece
     // "fg offline-ban" (license ile) gösteriliyor.
@@ -168,12 +173,14 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
 
 acCallBtn.addEventListener('click', () => {
     acCallBtn.style.display = 'none';
+    acSpamBtn.style.display = 'none';
     acCallForceBtn.style.display = 'none';
     acCallStatus.style.display = 'none';
     acCallCountRow.style.display = 'flex';
 });
 
 let acCallSending = false;
+let acSpamSending = false;
 let lastAcCallCount = 1;
 
 function runAcCall(count, force) {
@@ -215,6 +222,34 @@ ipcRenderer.on('ac-call-result', (event, result) => {
 
     // Tekrar çağırabilmek için (ör. cevap gelmezse 2x/3x ile tekrar) butonu geri getiriyoruz.
     acCallBtn.style.display = 'flex';
+    acSpamBtn.style.display = currentLookupResult && currentLookupResult.playerId ? 'flex' : 'none';
+    acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
+    acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
+});
+
+acSpamBtn.addEventListener('click', () => {
+    if (!currentLookupResult || acSpamSending) return;
+    acSpamSending = true;
+    acCallBtn.style.display = 'none';
+    acSpamBtn.style.display = 'none';
+    acCallForceBtn.style.display = 'none';
+    acCallCountRow.style.display = 'none';
+    acCallStatus.style.display = 'block';
+    acCallStatus.style.color = '';
+    acCallStatus.textContent = '10 mesaj gönderiliyor...';
+    ipcRenderer.send('ac-call-spam', {
+        discord: currentLookupResult.discord,
+        license: currentLookupResult.license,
+        playerId: currentLookupResult.playerId,
+        name: currentLookupResult.name,
+    });
+});
+
+ipcRenderer.on('ac-call-spam-result', (event, result) => {
+    acSpamSending = false;
+    acCallStatus.style.display = 'block';
+    acCallBtn.style.display = 'flex';
+    acSpamBtn.style.display = currentLookupResult && currentLookupResult.playerId ? 'flex' : 'none';
     acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
     acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
 });
