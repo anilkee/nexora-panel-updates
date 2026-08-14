@@ -289,7 +289,7 @@
                 <input type="text" id="lookupInput" placeholder="Örn: 3852">
                 <button class="primary-btn lookup-search-btn" id="lookupBtn"><svg class="icon"><use href="#icon-search"></use></svg></button>
             </div>
-            <p class="lookup-hint">Player ID, Discord ID, isim veya License ile arar. Kill-log, connections-webhook ve webhook-system (Şüpheli Aktivite) kanalları birlikte taranır; Player ID ile bulunan license connections-webhook'ta doğrulanır, Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
+            <p class="lookup-hint">Player ID, Discord ID, isim veya License ile arar. Kill-log ve connections-webhook kanalları birlikte taranır; Player ID ile bulunan license connections-webhook'ta doğrulanır, Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
             <div id="lookupResult" style="display: none; margin-top: 8px;"></div>
             <button class="primary-btn" id="acCallBtn" style="display: none; width: 100%; margin-top: 12px;"><svg class="icon"><use href="#icon-flag"></use></svg><span>AC Çağır</span></button>
             <button class="primary-btn" id="acSpamBtn" style="display: none; width: 100%; margin-top: 8px; background: var(--danger);"><svg class="icon"><use href="#icon-alert"></use></svg><span>Spam (10x)</span></button>
@@ -764,7 +764,6 @@
             addLookupRow('Discord', result.discord);
             addLookupRow('License', result.license);
             addLookupRow('IP', result.ip);
-            addLookupRow('Log ID', result.logId);
             addLookupRow('Rapor Türü', result.title);
             addLookupRow('Rapor Sayısı', String(result.reportCount || 1));
             if (result.lastSeenAt) {
