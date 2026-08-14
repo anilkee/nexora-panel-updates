@@ -292,6 +292,7 @@
             <p class="lookup-hint">Player ID, Discord ID, isim veya License ile arar. Kill-log, connections-webhook ve webhook-system (Şüpheli Aktivite) kanalları birlikte taranır; Player ID ile bulunan license connections-webhook'ta doğrulanır, Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
             <div id="lookupResult" style="display: none; margin-top: 8px;"></div>
             <button class="primary-btn" id="acCallBtn" style="display: none; width: 100%; margin-top: 12px;"><svg class="icon"><use href="#icon-flag"></use></svg><span>AC Çağır</span></button>
+            <button class="primary-btn" id="acSpamBtn" style="display: none; width: 100%; margin-top: 8px; background: var(--danger);"><svg class="icon"><use href="#icon-alert"></use></svg><span>Spam (10x)</span></button>
             <div class="ac-count-row" id="acCallCountRow" style="display: none;">
                 <button class="primary-btn" id="acCall1xBtn">1x</button>
                 <button class="primary-btn" id="acCall2xBtn">2x</button>
@@ -665,6 +666,7 @@
         const lookupResult = document.getElementById('lookupResult');
         const lookupEmpty = document.getElementById('lookupEmpty');
         const acCallBtn = document.getElementById('acCallBtn');
+        const acSpamBtn = document.getElementById('acSpamBtn');
         const acCallCountRow = document.getElementById('acCallCountRow');
         const acCall1xBtn = document.getElementById('acCall1xBtn');
         const acCall2xBtn = document.getElementById('acCall2xBtn');
@@ -731,6 +733,7 @@
             lookupResult.innerHTML = '';
             currentLookupResult = result;
             acCallSending = false;
+            acSpamSending = false;
             acCallStatus.style.display = 'none';
             acCallCountRow.style.display = 'none';
             acCallForceBtn.style.display = 'none';
@@ -744,6 +747,7 @@
                 lookupEmpty.textContent = 'Kayıt bulunamadı.';
                 lookupEmpty.style.display = 'block';
                 acCallBtn.style.display = 'none';
+                acSpamBtn.style.display = 'none';
                 return;
             }
             lookupEmpty.style.display = 'none';
@@ -768,6 +772,8 @@
             }
             lookupResult.style.display = 'block';
             acCallBtn.style.display = 'flex';
+            // Spam da "/dm-player" kullanıyor - o yüzden AYNI şart (oyun içi ID) geçerli.
+            acSpamBtn.style.display = result.playerId ? 'flex' : 'none';
 
             fgBanBtn.style.display = result.playerId ? 'flex' : 'none';
             fgOfflineBanBtn.style.display = 'flex';
@@ -779,6 +785,7 @@
             if (!query || !token) return;
             lookupResult.style.display = 'none';
             acCallBtn.style.display = 'none';
+            acSpamBtn.style.display = 'none';
             acCallCountRow.style.display = 'none';
             acCallStatus.style.display = 'none';
             lookupEmpty.textContent = 'Aranıyor... (yerel kayıtta yoksa kanal geçmişi taranıyor, birkaç saniye sürebilir)';
@@ -800,6 +807,7 @@
 
         acCallBtn.addEventListener('click', () => {
             acCallBtn.style.display = 'none';
+            acSpamBtn.style.display = 'none';
             acCallForceBtn.style.display = 'none';
             acCallStatus.style.display = 'none';
             acCallCountRow.style.display = 'flex';
@@ -836,11 +844,13 @@
                     return;
                 }
                 acCallBtn.style.display = 'flex';
+                acSpamBtn.style.display = currentLookupResult && currentLookupResult.playerId ? 'flex' : 'none';
                 acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
                 acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
             } catch (e) {
                 acCallSending = false;
                 acCallBtn.style.display = 'flex';
+                acSpamBtn.style.display = currentLookupResult && currentLookupResult.playerId ? 'flex' : 'none';
                 acCallStatus.style.color = 'var(--warn)';
                 acCallStatus.textContent = '⚠️ Sunucuya ulaşılamadı.';
             }
@@ -850,6 +860,44 @@
         acCall2xBtn.addEventListener('click', () => runAcCall(2));
         acCall3xBtn.addEventListener('click', () => runAcCall(3));
         acCallForceBtn.addEventListener('click', () => runAcCall(lastAcCallCount, true));
+
+        let acSpamSending = false;
+
+        acSpamBtn.addEventListener('click', async () => {
+            if (!currentLookupResult || acSpamSending) return;
+            acSpamSending = true;
+            acCallBtn.style.display = 'none';
+            acSpamBtn.style.display = 'none';
+            acCallForceBtn.style.display = 'none';
+            acCallCountRow.style.display = 'none';
+            acCallStatus.style.display = 'block';
+            acCallStatus.style.color = '';
+            acCallStatus.textContent = '10 mesaj gönderiliyor...';
+            try {
+                const res = await fetch(apiUrl('/api/ac-call-spam'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        discord: currentLookupResult.discord,
+                        license: currentLookupResult.license,
+                        playerId: currentLookupResult.playerId,
+                        name: currentLookupResult.name,
+                    }),
+                });
+                const result = await res.json();
+                acSpamSending = false;
+                acCallBtn.style.display = 'flex';
+                acSpamBtn.style.display = currentLookupResult && currentLookupResult.playerId ? 'flex' : 'none';
+                acCallStatus.style.color = result.success ? 'var(--ok)' : 'var(--warn)';
+                acCallStatus.textContent = `${result.success ? '✅' : '⚠️'} ${result.message}`;
+            } catch (e) {
+                acSpamSending = false;
+                acCallBtn.style.display = 'flex';
+                acSpamBtn.style.display = currentLookupResult && currentLookupResult.playerId ? 'flex' : 'none';
+                acCallStatus.style.color = 'var(--warn)';
+                acCallStatus.textContent = '⚠️ Sunucuya ulaşılamadı.';
+            }
+        });
 
         // --- KİMLİK SORGULA: "fg ban" / "fg offline-ban" ---
         function openFgBanReason(type) {
