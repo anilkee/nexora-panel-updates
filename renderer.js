@@ -5,6 +5,10 @@ function iconHtml(name) {
     return `<svg class="icon"><use href="#icon-${name}"></use></svg>`;
 }
 
+// --- ÖZEL BAŞLIK ÇUBUĞU (frame:false, native pencere butonları yok) ---
+document.getElementById('minimizeBtn')?.addEventListener('click', () => ipcRenderer.send('window-minimize'));
+document.getElementById('closeAppBtn')?.addEventListener('click', () => ipcRenderer.send('window-close'));
+
 const soundSelect = document.getElementById('soundSelect');
 const volumeSlider = document.getElementById('volumeSlider');
 const volumeLabel = document.getElementById('volumeLabel');
@@ -548,11 +552,19 @@ function renderTicketCard(ticket) {
     return card;
 }
 
+let lastTicketsSnapshot = [];
+
 function renderTicketList(tickets) {
     if (banReasonOpenFor) return; // sebep girilirken listeyi yenileyip alanı silme
+    lastTicketsSnapshot = tickets;
     ticketsList.innerHTML = '';
     tickets.forEach((ticket) => ticketsList.appendChild(renderTicketCard(ticket)));
     updateTicketsVisibility();
+    // Liste + Detay yerleşimi: sol kompakt liste + sadece seçili kartın görünmesi. Klasik/Yan
+    // Panel'de bu iki fonksiyon da zararsız (CSS zaten #ldTicketList'i ve .detail-active
+    // filtresini sadece data-layout="list-detail" iken devreye sokuyor).
+    renderCompactTicketList(tickets);
+    applyDetailSelection();
 }
 
 ipcRenderer.on('ticket-list', (event, tickets) => renderTicketList(tickets));
@@ -703,22 +715,29 @@ ipcRenderer.on('app-version', (event, version) => {
 
 ipcRenderer.send('request-app-version');
 
-// --- AYARLAR GÖRÜNÜMÜ (dişli / geri) ---
-const mainView = document.getElementById('mainView');
-const settingsView = document.getElementById('settingsView');
-const settingsBtn = document.getElementById('settingsBtn');
-const backBtn = document.getElementById('backBtn');
+// --- BÖLÜM GEÇİŞİ (tickets / lookup / status / settings) ---
+// Tek bir kaynak: body[data-section]. Görünürlük tamamen CSS'te (.section-block kuralları,
+// bkz. index.html <style>) - burada ASLA .style.display kullanılmıyor, çünkü inline style
+// 3 yerleşim modunun (classic/sidebar/list-detail) hepsinde aynı elemanları paylaşıyor ve
+// inline style CSS kurallarının önüne geçip layout değiştirince "takılı kalmış" görünürlük
+// bug'ına yol açardı. Aynı fonksiyon; klasikteki dişli/geri, yan paneldeki ikonlar ve
+// liste+detay'daki sekmelerin HEPSİ tarafından kullanılıyor (hepsi ".nav-target").
+const SECTION_NAMES = ['tickets', 'lookup', 'status', 'settings'];
 
-settingsBtn.addEventListener('click', () => {
-    mainView.style.display = 'none';
-    settingsView.style.display = 'block';
-    ipcRenderer.send('request-debug-log');
+function setActiveSection(name) {
+    if (!SECTION_NAMES.includes(name)) name = 'tickets';
+    document.body.dataset.section = name;
+    document.querySelectorAll('.nav-target').forEach((el) => {
+        el.classList.toggle('active', el.dataset.section === name);
+    });
+    if (name === 'settings') ipcRenderer.send('request-debug-log');
+}
+
+document.querySelectorAll('.nav-target').forEach((el) => {
+    el.addEventListener('click', () => setActiveSection(el.dataset.section));
 });
 
-backBtn.addEventListener('click', () => {
-    settingsView.style.display = 'none';
-    mainView.style.display = 'block';
-});
+setActiveSection('tickets');
 
 // --- HESAP & SUNUCU AYARLARI ---
 const ACCOUNT_FIELDS = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
@@ -884,3 +903,191 @@ themeButtons.forEach((btn) => {
         applyTheme(btn.dataset.theme);
     });
 });
+
+// --- PANEL YERLEŞİMİ (klasik / yan panel / liste+detay) ---
+// Tercih main.js'de config.env'e ("PANEL_LAYOUT") kalıcı olarak yazılıyor çünkü pencere
+// BOYUTU da layout'a göre değişiyor (bkz. main.js PANEL_LAYOUT_SIZES) - bu, renderer henüz
+// yüklenmeden main process'in ilk pencereyi doğru boyutta açabilmesi için gerekli (localStorage
+// sadece renderer'da var, ilk açılış boyutuna yetişemez). Panel açıldığında main.js'e
+// 'request-panel-layout' ile soruyoruz, o da kayıtlı değeri 'panel-layout' ile geri yolluyor.
+const layoutButtons = document.querySelectorAll('.layout-btn');
+
+function applyPanelLayout(layout) {
+    if (!layout || !['classic', 'sidebar', 'list-detail'].includes(layout)) layout = 'classic';
+    document.body.dataset.layout = layout;
+    layoutButtons.forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+    // Yerleşim değişince o an seçili bölüm yeni yerleşimde de anlamlı kalsın diye "tickets"a
+    // dönüyoruz (ör. klasikte iken settings açıkken sidebar'a geçilirse dişli zaten gizleniyor
+    // olurdu ama sekme/ikon karşılığı hâlâ vurgulanmamış kalırdı).
+    setActiveSection(document.body.dataset.section && SECTION_NAMES.includes(document.body.dataset.section) ? document.body.dataset.section : 'tickets');
+    applyDetailSelection();
+}
+
+layoutButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const layout = btn.dataset.layout;
+        applyPanelLayout(layout);
+        ipcRenderer.send('set-panel-layout', layout);
+    });
+});
+
+ipcRenderer.on('panel-layout', (event, layout) => applyPanelLayout(layout));
+ipcRenderer.send('request-panel-layout');
+
+// --- LİSTE + DETAY: sol kompakt ticket listesi + tek seçili kartın detay alanında gösterimi ---
+// Yan Panel ve Klasik'te TÜM ticket kartları normal şekilde görünür (bkz. CSS); sadece
+// "list-detail" yerleşiminde #ticketsList içindeki kartlardan yalnızca seçili olan gösterilir
+// (CSS: body[data-layout="list-detail"] #ticketsList .ticket-card { display:none } + .detail-active).
+let selectedDetailTicketId = null;
+const ldTicketList = document.getElementById('ldTicketList');
+
+function statusDotColor(ticket) {
+    if (ticket.flagged) return 'var(--danger)';
+    if (ticket.held) return 'var(--warn)';
+    return ticket.claimed ? 'var(--ok)' : 'var(--text-lo)';
+}
+
+function renderCompactTicketList(tickets) {
+    if (!ldTicketList) return;
+    ldTicketList.innerHTML = '';
+    if (tickets.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'ld-list-empty';
+        empty.textContent = 'Ticket bekleniyor...';
+        ldTicketList.appendChild(empty);
+        selectedDetailTicketId = null;
+        lastFetchedDetailId = null;
+        if (ldDetailInfo) {
+            ldDetailInfo.innerHTML = '';
+            ldDetailInfo.classList.remove('has-data');
+        }
+        return;
+    }
+    // Seçili ticket artık listede yoksa (kapatıldı vb.) ilk ticket'a düş.
+    if (!tickets.some((t) => t.id === selectedDetailTicketId)) {
+        selectedDetailTicketId = tickets[0].id;
+    }
+    tickets.forEach((ticket) => {
+        const row = document.createElement('div');
+        row.className = 'ld-list-item';
+        row.dataset.ticketId = ticket.id;
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = statusDotColor(ticket);
+        const label = document.createElement('span');
+        label.className = 't';
+        label.textContent = ticket.name;
+        row.appendChild(dot);
+        row.appendChild(label);
+        row.addEventListener('click', () => selectDetailTicket(ticket.id));
+        ldTicketList.appendChild(row);
+    });
+}
+
+function selectDetailTicket(id) {
+    selectedDetailTicketId = id;
+    setActiveSection('tickets');
+    applyDetailSelection();
+}
+
+// Hem #ticketsList'teki (detay alanında gösterilecek) kartın hem de #ldTicketList'teki
+// (sol kompakt liste) seçili satırın vurgusunu tek yerden, anında günceller - böylece bir
+// ticket'a tıklayınca sonraki veri yenilenmesini (ticket-list event'i) beklemeden aktif
+// satır hemen değişir.
+function applyDetailSelection() {
+    document.querySelectorAll('#ticketsList .ticket-card').forEach((card) => {
+        card.classList.toggle('detail-active', card.id === `ticket-${selectedDetailTicketId}`);
+    });
+    document.querySelectorAll('#ldTicketList .ld-list-item').forEach((row) => {
+        row.classList.toggle('active', row.dataset.ticketId === String(selectedDetailTicketId));
+    });
+    refreshDetailInfoIfNeeded();
+}
+
+// --- LİSTE + DETAY: seçili ticket için zengin kimlik bilgisi ---
+// Ticket açılırken zaten yakalanan license/oyun içi ID (main.js, channelLicense/channelGameId)
+// + ticket açan kişinin Discord ID'si + bunlarla connections-webhook'ta bulunan EN SON olay
+// (steam, online durumu, varsa "Reason" metni) main process'ten 'request-ticket-detail' ile
+// isteniyor. Kasıtlı olarak eskiden kaldırılan FeloxAC ban-webhook/weapons-webhook'a DÖNÜLMEDİ
+// (o, artık geçersiz/eski banları "hâlâ banlı" gibi gösterip yanıltıcı çıkmıştı) - onun yerine
+// zaten kullanılan connections-webhook'un "Reason" alanı (banla çıkarıldıysa bunu içeriyor)
+// bilgilendirici bir NOT olarak gösteriliyor, kesin "BANLI" iddiası olarak DEĞİL.
+const ldDetailInfo = document.getElementById('ldDetailInfo');
+let lastFetchedDetailId = null;
+
+function refreshDetailInfoIfNeeded() {
+    if (document.body.dataset.layout !== 'list-detail') return;
+    if (!selectedDetailTicketId || selectedDetailTicketId === lastFetchedDetailId) return;
+    lastFetchedDetailId = selectedDetailTicketId;
+    const ticket = lastTicketsSnapshot.find((t) => t.id === selectedDetailTicketId);
+    renderDetailInfoSkeleton(ticket);
+    ipcRenderer.send('request-ticket-detail', selectedDetailTicketId);
+}
+
+function renderDetailInfoSkeleton(ticket) {
+    if (!ldDetailInfo || !ticket) return;
+    ldDetailInfo.innerHTML = '';
+    ldDetailInfo.classList.add('has-data');
+    const title = document.createElement('div');
+    title.className = 'ld-detail-title';
+    title.textContent = ticket.name;
+    ldDetailInfo.appendChild(title);
+    const sub = document.createElement('div');
+    sub.className = 'ld-detail-sub';
+    sub.textContent = ticket.claimed ? 'Claim edildi' : 'Claim edilmedi';
+    ldDetailInfo.appendChild(sub);
+    const loading = document.createElement('div');
+    loading.className = 'ld-detail-loading';
+    loading.textContent = 'Kimlik bilgileri yükleniyor...';
+    ldDetailInfo.appendChild(loading);
+}
+
+function detailField(label, value) {
+    const item = document.createElement('div');
+    item.className = 'ld-detail-item';
+    const l = document.createElement('span');
+    l.className = 'ld-detail-label';
+    l.textContent = label;
+    const v = document.createElement('span');
+    v.className = 'ld-detail-value';
+    v.textContent = value || '—';
+    item.appendChild(l);
+    item.appendChild(v);
+    return item;
+}
+
+function renderDetailInfoFields(channelId, info) {
+    if (!ldDetailInfo || channelId !== selectedDetailTicketId) return;
+    const loading = ldDetailInfo.querySelector('.ld-detail-loading');
+    if (loading) loading.remove();
+    if (!info) {
+        const hint = document.createElement('div');
+        hint.className = 'ld-detail-hint';
+        hint.textContent = 'Bilgi alınamadı (kanal artık mevcut olmayabilir).';
+        ldDetailInfo.appendChild(hint);
+        return;
+    }
+
+    const grid = document.createElement('div');
+    grid.className = 'ld-detail-grid';
+    grid.appendChild(detailField('Oyun İçi ID', info.gameId));
+    grid.appendChild(detailField('License', info.license));
+    grid.appendChild(detailField('Discord', info.discordId));
+    grid.appendChild(detailField('Steam', info.steam));
+    ldDetailInfo.appendChild(grid);
+
+    if (info.banned) {
+        const banBox = document.createElement('div');
+        banBox.className = 'ld-detail-ban';
+        banBox.innerHTML = `${iconHtml('ban')}<span></span>`;
+        banBox.querySelector('span').textContent = `Son bağlantı sebebi banla ilgili görünüyor: ${info.lastEventReason}`;
+        ldDetailInfo.appendChild(banBox);
+    } else if (info.lastEventReason) {
+        const hint = document.createElement('div');
+        hint.className = 'ld-detail-hint';
+        hint.textContent = `Son bağlantı: ${info.lastEventReason}${info.lastEventOnline ? ' (şu an oyunda)' : ''}`;
+        ldDetailInfo.appendChild(hint);
+    }
+}
+
+ipcRenderer.on('ticket-detail', (event, { channelId, detail }) => renderDetailInfoFields(channelId, detail));
