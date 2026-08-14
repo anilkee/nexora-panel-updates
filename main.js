@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.13.1';
+const CURRENT_VERSION = '1.14.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -193,6 +193,39 @@ function broadcastSystemStatus() {
 
 ipcMain.on('request-system-status', () => broadcastSystemStatus());
 
+// Pencereler frame:false olduğu için (özel .titlebar kullanılıyor, hem index.html hem
+// setup.html'de) küçült/kapat artık native başlık çubuğu butonlarından değil, kendi
+// butonlarımızdan bu IPC mesajlarıyla tetikleniyor. İsteği HANGİ pencere gönderdiyse
+// (mainWindow ya da setupWindow) o kapanıp/küçülüyor - sabit mainWindow varsayılmıyor.
+ipcMain.on('window-minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+ipcMain.on('window-close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+});
+
+// Panel yerleşimi (klasik/yan panel/liste+detay) - renderer açılışta mevcut tercihi
+// soruyor, kullanıcı ayarlardan değiştirdiğinde ise pencere anında yeni boyuta getirilip
+// config.env'e kalıcı olarak yazılıyor (bkz. PANEL_LAYOUT_SIZES, savePanelLayoutToConfig).
+ipcMain.on('request-panel-layout', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.webContents.send('panel-layout', panelLayout);
+});
+ipcMain.on('set-panel-layout', (event, layout) => {
+    if (!PANEL_LAYOUT_SIZES[layout]) return;
+    savePanelLayoutToConfig(layout);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        const { width, height } = PANEL_LAYOUT_SIZES[layout];
+        // Pencere resizable:false olduğu için Windows'ta setSize bazen (özellikle
+        // küçültme yönünde) sessizce yok sayılıyor - resizable'ı anlık true yapıp
+        // boyutu değiştirip tekrar false'a döndürmek bu sorunu güvenilir şekilde atlatıyor.
+        win.setResizable(true);
+        win.setSize(width, height);
+        win.center();
+        win.setResizable(false);
+    }
+});
+
 
 const DEFAULT_SCAN_MESSAGE = 'Programı çalıştırıp tam ekran ss atar mısınız?';
 let scanMessage = process.env.SCAN_MESSAGE || DEFAULT_SCAN_MESSAGE;
@@ -220,6 +253,18 @@ let fiveguardNotifyEnabled = process.env.FIVEGUARD_NOTIFY_ENABLED !== 'false';
 // Windows açılışında otomatik başlatma. Varsayılan AÇIK - bu güncellemeyi alan
 // herkeste otomatik devreye girsin diye (kapatılırsa config.env'e "false" yazılır).
 let openAtLoginEnabled = process.env.OPEN_AT_LOGIN !== 'false';
+
+// --- PANEL YERLEŞİMİ (klasik / yan panel / liste+detay) ---
+// Renderer'daki data-layout ile birebir aynı 3 seçenek. Pencere BOYUTU da yerleşime göre
+// değişiyor, bu yüzden (tema gibi sadece localStorage'a değil) config.env'e de yazılıp ana
+// pencere ilk açılırken doğru boyutta oluşturuluyor (renderer henüz yüklenmeden önce main
+// process'in bilmesi gerekiyor - localStorage'a bu aşamada erişilemez).
+const PANEL_LAYOUT_SIZES = {
+    classic: { width: 460, height: 700 },
+    sidebar: { width: 620, height: 640 },
+    'list-detail': { width: 700, height: 620 }
+};
+let panelLayout = PANEL_LAYOUT_SIZES[process.env.PANEL_LAYOUT] ? process.env.PANEL_LAYOUT : 'classic';
 
 // config.env satırı üretir - değer içinde satır sonu/tırnak olsa da güvenle saklanır.
 function formatConfigLine(key, value) {
@@ -307,6 +352,13 @@ function saveAcTicketMessageToConfig(text) {
     acTicketMessage = text || DEFAULT_AC_TICKET_MESSAGE;
     saveConfigValue('AC_TICKET_MESSAGE', text);
     console.log('[AC Ticket Mesajı] Mesaj kaydedildi.');
+}
+
+function savePanelLayoutToConfig(layout) {
+    if (!PANEL_LAYOUT_SIZES[layout]) return;
+    panelLayout = layout;
+    saveConfigValue('PANEL_LAYOUT', layout);
+    console.log(`[Panel Yerleşimi] Kaydedildi: ${layout}`);
 }
 
 // Windows'un kendi "başlangıçta çalıştır" mekanizmasını (kayıt defterine kısayol
@@ -680,7 +732,23 @@ async function performTicketBanConfirm(channelId, reason) {
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
 
-    const license = channelLicense.get(channelId);
+    let license = channelLicense.get(channelId);
+    let gameId = channelGameId.get(channelId);
+    if (!license || !gameId) {
+        // Canlı yakalanmamış olabilir (ticket açılışı panel dinlemeye başlamadan önce
+        // olmuş) - vazgeçmeden önce kanalın geçmişinden taze bulmayı dene (bkz.
+        // findPlayerInfoFromHistory yorumu, buildTicketDetail'de de aynı desen kullanılıyor).
+        const historyInfo = await findPlayerInfoFromHistory(channel);
+        if (!license && historyInfo?.license) {
+            license = historyInfo.license;
+            channelLicense.set(channelId, license);
+            console.log(`[Panel] ${channel.name}: lisans geçmişten bulundu: ${license}`);
+        }
+        if (!gameId && historyInfo?.gameId) {
+            gameId = historyInfo.gameId;
+            channelGameId.set(channelId, gameId);
+        }
+    }
     if (!license) {
         console.log(`[Panel] ${channel.name}: lisans yakalanmamış, /fg komutları gönderilmedi.`);
         if (mainWindow) {
@@ -699,8 +767,6 @@ async function performTicketBanConfirm(channelId, reason) {
         console.log(`[Panel] ${channel.name}: sebep boş, /fg komutları gönderilmedi.`);
         return;
     }
-
-    const gameId = channelGameId.get(channelId);
 
     try {
         if (gameId) {
@@ -1108,6 +1174,20 @@ const mobileServer = http.createServer(async (req, res) => {
         return;
     }
 
+    // Logo - mobile.html'in <img> etiketi buradan çekiyor. Token gerekmiyor (hassas
+    // veri değil, sadece görsel) - token'sız istek atan biri sadece logoyu görür.
+    if (req.method === 'GET' && reqUrl.pathname === '/logo.png') {
+        try {
+            const logoBuffer = fs.readFileSync(path.join(__dirname, 'logo.png'));
+            res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+            res.end(logoBuffer);
+        } catch (error) {
+            res.writeHead(404);
+            res.end();
+        }
+        return;
+    }
+
     if (req.method === 'GET' && reqUrl.pathname === '/api/tickets') {
         if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
         return sendJson(res, 200, getTicketChannels());
@@ -1200,11 +1280,17 @@ function startApp() {
     // tercihle senkron tutuyoruz (exe taşınmış/yeniden paketlenmiş olsa bile).
     app.setLoginItemSettings({ openAtLogin: openAtLoginEnabled });
     mainWindow = new BrowserWindow({
-        width: 460,
-        height: 700,
+        width: PANEL_LAYOUT_SIZES[panelLayout].width,
+        height: PANEL_LAYOUT_SIZES[panelLayout].height,
         title: "Nexora Kontrol Merkezi",
         autoHideMenuBar: true,
         resizable: false,
+        // Native Windows başlık çubuğu (siyah, panelden kopuk duran şerit) kaldırılıp
+        // yerine index.html'deki ".titlebar" (panelle aynı temada, sürüklenebilir,
+        // kendi küçült/kapat butonları olan) geçiyor - kullanıcı isteğiyle "üst kısmı
+        // panelle birleştir" (bkz. IPC: window-minimize / window-close).
+        frame: false,
+        icon: path.join(__dirname, 'icon.ico'),
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false
@@ -1320,6 +1406,8 @@ function showSetupWindow() {
         title: "Nexora Panel - İlk Kurulum",
         autoHideMenuBar: true,
         resizable: false,
+        frame: false,
+        icon: path.join(__dirname, 'icon.ico'),
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false
@@ -1692,6 +1780,81 @@ async function findInConnectionsWebhook({ playerId, license, discordId, name, ti
     );
 }
 
+// --- LİSTE + DETAY panelinin ticket başına gösterdiği zengin kimlik bilgisi ---
+// Kullanıcı elle bir sorgu yazmıyor (bu, Kimlik Sorgula'dan FARKLI bir akış) - ticket
+// seçilince otomatik olarak: (1) ticket açılışında zaten yakalanmış license/oyun içi ID
+// (channelLicense/channelGameId - ekstra tarama gerektirmiyor), (2) findTargetUserId ile
+// ticket'ı açan kişinin Discord ID'si, (3) bunlarla connections-webhook'taki EN SON olay
+// (steam + "Reason" metni - banla çıkarıldıysa bunu içeriyor) birleştiriliyor.
+// BİLİNÇLİ OLARAK eskiden kaldırılan FeloxAC ban-webhook/weapons-webhook'a DÖNÜLMEDİ (bkz.
+// DEVIR_TESLIM.md) - o, unbans-webhook'u hiç kontrol etmediği için süresi geçmiş/kaldırılmış
+// eski banları "hâlâ banlı" gibi gösterip yanıltıcı çıkmıştı. Bunun yerine `banned` alanı
+// sadece connections-webhook'un EN GÜNCEL "Reason" metninde "ban" geçip geçmediğine bakan
+// bilgilendirici bir işaret - kesin/iddialı bir "BANLI" rozeti DEĞİL, panelde de öyle
+// (uyarı kutusu + ham sebep metni) gösteriliyor.
+async function buildTicketDetail(channelId) {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return null;
+
+    let license = channelLicense.get(channelId) || null;
+    let gameId = channelGameId.get(channelId) || null;
+
+    // Bu ticket için canlı yakalama hiç olmadıysa (bkz. findPlayerInfoFromHistory yorumu),
+    // geçmişten taze bul VE ileride Ban gibi diğer akışlar da yararlansın diye map'lere
+    // de yaz (sadece bu fonksiyona özel bir önbellek değil, aynı channelLicense/channelGameId).
+    if (!license || !gameId) {
+        const historyInfo = await findPlayerInfoFromHistory(channel);
+        if (historyInfo) {
+            if (!license && historyInfo.license) {
+                license = historyInfo.license;
+                channelLicense.set(channelId, license);
+            }
+            if (!gameId && historyInfo.gameId) {
+                gameId = historyInfo.gameId;
+                channelGameId.set(channelId, gameId);
+            }
+        }
+    }
+
+    let discordId = null;
+    try {
+        discordId = await findTargetUserId(channel, null);
+    } catch (error) {
+        console.log(`[Ticket Detay] ${channel.name}: hedef kullanıcı bulunamadı: ${error.message}`);
+    }
+
+    let connHit = null;
+    if (license || discordId) {
+        try {
+            connHit = await findInConnectionsWebhook({ license, discordId, timeBudgetMs: LOOKUP_VERIFY_TIME_BUDGET_MS });
+        } catch (error) {
+            console.log(`[Ticket Detay] ${channel.name}: connections-webhook taranamadı: ${error.message}`);
+        }
+    }
+
+    return {
+        license,
+        gameId: gameId || connHit?.playerId || null,
+        discordId,
+        steam: connHit?.steam || null,
+        lastEventReason: connHit?.reason || null,
+        lastEventOnline: connHit?.online ?? null,
+        banned: !!(connHit?.reason && /ban/i.test(connHit.reason)),
+    };
+}
+
+ipcMain.on('request-ticket-detail', async (event, channelId) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    try {
+        const detail = await buildTicketDetail(channelId);
+        win.webContents.send('ticket-detail', { channelId, detail });
+    } catch (error) {
+        console.log(`[Ticket Detay] İstek başarısız: ${error.message}`);
+        win.webContents.send('ticket-detail', { channelId, detail: null });
+    }
+});
+
 // Sorgu metninden tür tahmini: "license:" ile başlıyorsa license, sadece
 // rakamsa uzunluğuna göre Discord ID (snowflake, 15+ hane) ya da Player ID
 // (kısa - sunucuda birkaç yüz oyuncu var), aksi halde isim.
@@ -1805,16 +1968,23 @@ async function resolvePlayerIdentity(query) {
 // --- "!id <sorgu>" KOMUTU (yetkili sohbet/bot-komut kanalları) ---
 // Bu botu kullanan birkaç arkadaşın kendi bot instance'ı da AYNI kanalları dinliyor -
 // biri "!id 256" yazınca hepsi aynı anda görüyor, hepsi cevap verirse aynı sonuç 5 kez
-// yazılmış olur. Discord'un KENDİ reaction sistemi paylaşılan/görünür bir "kilit" gibi
-// kullanılıyor: komutu gören her instance kısa rastgele bir gecikme bekleyip (çakışma
-// ihtimalini azaltmak için) mesajı TAZE çekip CLAIM_EMOJI reaction'ı var mı diye bakıyor -
-// varsa (başka biri zaten üstlenmiş) hiçbir şey yapmadan çıkıyor, yoksa HEMEN kendi
-// reaction'ını ekleyip (bu andan sonra diğer tüm instance'lar bunu görüp çekilir) sorguyu
-// çözüp cevabı mesaja REPLY olarak atıyor. Sorgu uzun sürebildiği için (60sn'ye kadar)
-// önce reaction ile "üstlendim" işareti koymak şart - sadece "cevap var mı" diye bakmak
-// yetmezdi (iki bot da cevap gelmeden aynı anda "henüz cevap yok" görüp ikisi de arardı).
-const ID_COMMAND_CHANNEL_IDS = ['1475520758095544490', '1470230482649223197', '1470230478274564289', '1502372307887194132'];
-const ID_COMMAND_CLAIM_EMOJI = '🔍';
+// yazılmış olur. EMOJİSİZ çözüm - reaction yerine bir "claim mesajı" kullanılıyor, sadece
+// "Mesaj Gönder" izni yeterli (bu zaten şart, cevap da mesajla gidiyor):
+// 1. Komutu gören her instance kısa rastgele bir gecikme bekler, komuttan SONRAKİ
+//    mesajlara bakıp (kendi mesajı REFERANS ALAN, yani ona REPLY olan bir bot mesajı) var
+//    mı diye kontrol eder - varsa başkası zaten üstlenmiş demektir, çekilir.
+// 2. Yoksa HEMEN kendi "🔍 Sorgu üstlenildi, aranıyor..." claim mesajını REPLY olarak
+//    gönderir - bu mesajın kendisi, artık diğer instance'ların 1. adımda göreceği "işaret".
+// 3. Sorgu uzun sürebildiği için (60sn'ye kadar) kısa bir "sakinleşme" süresi sonra TEKRAR
+//    kontrol edilir - neredeyse aynı anda birden fazla instance da claim mesajı göndermiş
+//    olabilir (check+gönderme arasındaki dar ağ gecikmesi penceresi yüzünden). Birden
+//    fazlaysa DETERMİNİSTİK bir kazanan seçilir (en küçük Discord kullanıcı ID'si - herkes
+//    AYNI hesaplamayı yapıp AYNI sonuca varır) - kaybedenler kendi claim mesajlarını SİLİP
+//    (bu da özel izin gerektirmiyor, kendi mesajını silmek her zaman serbest) çekilir.
+// 4. Kazanan sorguyu çözüp SONUCU claim mesajına EDİT ile yazar (yeni mesaj atmaz) - yani
+//    kanalda hep TEK bir mesaj kalır: önce "aranıyor...", sonra sonuç.
+const ID_COMMAND_CHANNEL_IDS = ['1475520758095544490', '1470230482649223197', '1470230478274564289', '1502372307887194132', '1470230475485479097'];
+const ID_COMMAND_CLAIM_TEXT = '🔍 Sorgu üstlenildi, aranıyor...';
 
 function formatIdCommandResult(query, result) {
     if (!result) return `❌ "${query}" için sonuç bulunamadı.`;
@@ -1828,47 +1998,47 @@ function formatIdCommandResult(query, result) {
     return lines.join('\n');
 }
 
+// Komuttan SONRA gelen, ona REPLY olan bot mesajlarını (claim/cevap mesajları) döndürür.
+async function findIdCommandClaimReplies(commandMessage) {
+    const recent = await commandMessage.channel.messages.fetch({ limit: 20, after: commandMessage.id });
+    return [...recent.values()].filter((m) => m.author.bot && m.reference?.messageId === commandMessage.id);
+}
+
 async function handleIdCommand(message, query) {
     // Rastgele mikro-gecikme (100-900ms) - tüm instance'lar komutu AYNI ANDA görüyor,
-    // bu gecikme "hepsi aynı milisaniyede reaction eklemeye çalışır" çakışmasını azaltır
-    // ama TEK BAŞINA yeterli değil (standalone testte 5 instance'la ~%57 ihtimalle
-    // birden fazlası claim edebiliyordu - check ile react arasındaki ağ gecikmesi
-    // penceresinde iki instance da "henüz kimse almamış" görebiliyor). Bu yüzden
-    // aşağıda bir de DETERMİNİSTİK TIE-BREAK adımı var.
+    // bu gecikme "hepsi aynı milisaniyede claim mesajı atar" çakışmasını azaltır ama TEK
+    // BAŞINA yeterli değil, bu yüzden aşağıda bir de DETERMİNİSTİK TIE-BREAK adımı var.
     await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 900));
 
+    let claimMessage;
     try {
-        const fresh = await message.fetch(); // reaction durumunu TAZE almak için şart
-        const alreadyClaimed = fresh.reactions.cache.some((r) => r.emoji.name === ID_COMMAND_CLAIM_EMOJI);
-        if (alreadyClaimed) {
+        const existing = await findIdCommandClaimReplies(message);
+        if (existing.length > 0) {
             console.log(`[!id] "${query}" için başka bir instance zaten üstlenmiş, atlanıyor.`);
             return;
         }
-        await message.react(ID_COMMAND_CLAIM_EMOJI);
+        claimMessage = await message.reply(ID_COMMAND_CLAIM_TEXT);
     } catch (error) {
         console.log(`[!id] Claim aşamasında hata: ${error.message}`);
         return;
     }
 
-    // "Sakinleşme" süresi - neredeyse aynı anda birden fazla instance da claim etmiş
-    // olabilir (yukarıdaki check+react arasındaki dar ağ gecikmesi penceresi yüzünden).
-    // Kısa bir süre bekleyip mesajı TEKRAR taze çekiyoruz - bu sürede diğer olası
-    // claim'ler de Discord'a işlenmiş olur. Reaction sayısı 1'den fazlaysa (birden
-    // fazla instance claim etmiş), DETERMİNİSTİK bir kazanan seçiyoruz (en küçük
-    // Discord kullanıcı ID'si - herkes AYNI hesaplamayı yapıp AYNI sonuca varıyor,
-    // ekstra iletişime gerek kalmadan) - kaybedenler sessizce çekiliyor.
+    // "Sakinleşme" süresi - neredeyse aynı anda birden fazla instance da claim mesajı
+    // göndermiş olabilir. Kısa bir süre bekleyip TEKRAR kontrol ediyoruz - bu sürede diğer
+    // olası claim'ler de Discord'a işlenmiş olur. Birden fazla claim varsa DETERMİNİSTİK
+    // bir kazanan seçiyoruz (en küçük Discord kullanıcı ID'si) - kaybedenler kendi claim
+    // mesajlarını silip çekiliyor.
     await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
     try {
-        const settled = await message.fetch();
-        const reaction = settled.reactions.cache.find((r) => r.emoji.name === ID_COMMAND_CLAIM_EMOJI);
-        if (reaction && reaction.count > 1) {
-            const users = await reaction.users.fetch();
-            const winnerId = [...users.keys()].reduce((min, id) => (BigInt(id) < BigInt(min) ? id : min));
+        const claimants = await findIdCommandClaimReplies(message);
+        if (claimants.length > 1) {
+            const winnerId = claimants.reduce((min, m) => (BigInt(m.author.id) < BigInt(min) ? m.author.id : min), claimants[0].author.id);
             if (winnerId !== client.user.id) {
-                console.log(`[!id] "${query}" için ${users.size} instance aynı anda üstlenmiş, tie-break kaybedildi (kazanan: ${winnerId}) - çekiliyorum.`);
+                console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kaybedildi (kazanan: ${winnerId}) - claim mesajım siliniyor.`);
+                await claimMessage.delete().catch(() => {});
                 return;
             }
-            console.log(`[!id] "${query}" için ${users.size} instance aynı anda üstlenmiş, tie-break kazanıldı - devam ediliyor.`);
+            console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kazanıldı - devam ediliyor.`);
         }
     } catch (error) {
         console.log(`[!id] Tie-break kontrolü yapılamadı (${error.message}), yine de devam ediliyor.`);
@@ -1877,12 +2047,12 @@ async function handleIdCommand(message, query) {
     console.log(`[!id] "${query}" sorgusu üstlenildi, aranıyor...`);
     try {
         const result = await resolvePlayerIdentity(query);
-        await message.reply(formatIdCommandResult(query, result));
+        await claimMessage.edit(formatIdCommandResult(query, result));
     } catch (error) {
         console.log(`[Hata] !id "${query}": ${error.message}`);
         try {
-            await message.reply(`⚠️ "${query}" aranırken bir hata oluştu: ${error.message}`);
-        } catch (e) { /* cevap da atılamadıysa yapacak bir şey yok */ }
+            await claimMessage.edit(`⚠️ "${query}" aranırken bir hata oluştu: ${error.message}`);
+        } catch (e) { /* düzenleme de başarısız olduysa yapacak bir şey yok */ }
     }
 }
 
@@ -2080,6 +2250,59 @@ client.on('channelDelete', (channel) => {
     }
 });
 
+// Ticket açılışında "MD PVP SYSTEM" botunun attığı "Otomatik Oyuncu Bilgi" mesajından
+// license + oyun içi ID çıkarır. HEM canlı mesaj dinleyicisinde (messageCreate, aşağıda)
+// HEM DE findPlayerInfoFromHistory'nin (buildTicketDetail/performTicketBanConfirm için)
+// GEÇMİŞ TARAMASINDA kullanılan TEK ortak fonksiyon - ikisi asla birbirinden sapmasın diye.
+function parsePlayerInfoFromBotMessage(message) {
+    const combinedText = [
+        message.content || '',
+        ...(message.embeds || []).flatMap((e) => [
+            e.title || '',
+            e.description || '',
+            ...(e.fields || []).map((f) => `${f.name} ${f.value}`)
+        ])
+    ].join(' ');
+    const licenseMatch = combinedText.match(/license:[a-f0-9]+/i);
+
+    // "Oyun İçi ID" alanı: kullanıcı oyundaysa bir sayı, değilse bir tire/çizgi gösteriyor.
+    // hasGameIdField ayrı tutuluyor çünkü "alan var ama sayı değil" (oyunda değil) ile
+    // "alan hiç yok" (bu mesajda bilgi yok, sessizce atla) farklı anlamlara geliyor.
+    const gameIdField = (message.embeds || []).flatMap((e) => e.fields || []).find((f) => /oyun/i.test(f.name));
+    let gameId = null;
+    if (gameIdField) {
+        const cleanValue = String(gameIdField.value).replace(/[`*_~]/g, '').trim();
+        if (/^\d+$/.test(cleanValue)) gameId = cleanValue;
+    }
+
+    return {
+        license: licenseMatch ? licenseMatch[0] : null,
+        hasGameIdField: !!gameIdField,
+        gameId,
+    };
+}
+
+// channelLicense/channelGameId sadece CANLI messageCreate ile dolduğu için, panel bir
+// ticket'ın "Otomatik Oyuncu Bilgi" mesajı gönderildiği SIRADA açık/dinlemiyor idiyse
+// (uygulama sonradan başlatıldı/yeniden başladı) o ticket için hiç yakalanmamış olur -
+// canlı örnekte görüldü (koro19 ticket'ı: bot mesajında license/oyun içi ID görünüyordu
+// ama panel boş gösteriyordu). Bu fonksiyon, kanalın EN ESKİ mesajlarını (performTicketClose
+// ile aynı desen - ham JSON, panelin o an dinliyor olup olmamasından bağımsız) tarayıp bilgiyi
+// TAZE buluyor.
+async function findPlayerInfoFromHistory(channel) {
+    try {
+        const rawMessages = await client.api.channels(channel.id).messages.get({ query: { after: '0', limit: 20 } });
+        for (const message of rawMessages) {
+            if (!message.author?.bot) continue;
+            const info = parsePlayerInfoFromBotMessage(message);
+            if (info.license || info.hasGameIdField) return info;
+        }
+    } catch (error) {
+        console.log(`[Oyuncu Bilgi] ${channel.name}: geçmiş taranamadı: ${error.message}`);
+    }
+    return null;
+}
+
 client.on('messageCreate', async (message) => {
 
     // --- BEKLETİLEN TICKET BİLDİRİMİ ---
@@ -2132,27 +2355,17 @@ client.on('messageCreate', async (message) => {
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
     if (message.channel.parentId === CATEGORY_ID && message.author.bot) {
-        const combinedText = [
-            message.content || '',
-            ...message.embeds.flatMap((e) => [
-                e.title || '',
-                e.description || '',
-                ...(e.fields || []).map((f) => `${f.name} ${f.value}`)
-            ])
-        ].join(' ');
-        const licenseMatch = combinedText.match(/license:[a-f0-9]+/i);
-        if (licenseMatch) {
-            channelLicense.set(message.channel.id, licenseMatch[0]);
-            console.log(`[Lisans] ${message.channel.name} için lisans yakalandı: ${licenseMatch[0]}`);
+        const info = parsePlayerInfoFromBotMessage(message);
+        if (info.license) {
+            channelLicense.set(message.channel.id, info.license);
+            console.log(`[Lisans] ${message.channel.name} için lisans yakalandı: ${info.license}`);
         }
 
         // "Oyun İçi ID" alanı: kullanıcı oyundaysa bir sayı, değilse bir tire/çizgi gösteriyor.
-        const gameIdField = message.embeds.flatMap((e) => e.fields || []).find((f) => /oyun/i.test(f.name));
-        if (gameIdField) {
-            const cleanValue = gameIdField.value.replace(/[`*_~]/g, '').trim();
-            if (/^\d+$/.test(cleanValue)) {
-                channelGameId.set(message.channel.id, cleanValue);
-                console.log(`[Oyun İçi ID] ${message.channel.name} için yakalandı: ${cleanValue} (kullanıcı oyunda)`);
+        if (info.hasGameIdField) {
+            if (info.gameId) {
+                channelGameId.set(message.channel.id, info.gameId);
+                console.log(`[Oyun İçi ID] ${message.channel.name} için yakalandı: ${info.gameId} (kullanıcı oyunda)`);
             } else {
                 channelGameId.delete(message.channel.id);
                 console.log(`[Oyun İçi ID] ${message.channel.name}: kullanıcı şu an oyunda değil.`);
