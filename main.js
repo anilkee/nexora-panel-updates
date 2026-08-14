@@ -89,7 +89,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.13.0';
+const CURRENT_VERSION = '1.13.1';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -1421,12 +1421,6 @@ function extractSuspiciousIdentifier(embed) {
 // license ile steam/discord/ip'sini verir. Yerel kayıtta yoksa bu iki kaynağı
 // istek üzerine (sadece sorgulandığında) tarıyoruz - arka planda sürekli çekmiyoruz.
 const KILL_LOG_CHANNEL_IDS = ['1470948766340223188', '1492906523603636484', '1492906545342578748'];
-// "MD PVP SYSTEM" botunun şüpheli silah tespitiyle OTOMATİK banladığı kill'ler - normal
-// kill-log ile BİREBİR AYNI embed formatında (parseKillLogEntries ekstra değişiklik
-// gerekmeden çalışıyor), ayrı bir kanalda çünkü sadece FLAGLI/otomatik-banlanmış kill'ler
-// burada. Kullanıcı isteğiyle Kimlik Sorgula'ya SESSİZ bir kaynak olarak eklendi (bildirim
-// YOK, sadece arandığında ekstra veri/eşleşme kaynağı).
-const KILL_LOG_HILE_CHANNEL_ID = '1494711362838990949';
 const CONNECTIONS_WEBHOOK_CHANNEL_ID = '1513234125337919610';
 // Mesaj sayısı yerine ZAMAN bütçesiyle sınırlıyoruz - kanallar çok yoğun olabildiği
 // için sabit bir mesaj sayısı bazen yetersiz kalıyordu. Kullanıcı isteğiyle bir
@@ -1436,13 +1430,6 @@ const CONNECTIONS_WEBHOOK_CHANNEL_ID = '1513234125337919610';
 const LOOKUP_SCAN_TIME_BUDGET_MS = 30000; // 1. adım: kill-log/webhook-system/connections-webhook ilk tarama
 const LOOKUP_VERIFY_TIME_BUDGET_MS = 30000; // 2. adım: doğrulama taraması (license/Player ID teyidi)
 const LOOKUP_SCAN_PAGE_DELAY_MS = 150; // sayfalar arası rate-limit'e nazik bekleme
-// Player ID akışında webhook-system SADECE ek zenginleştirme kaynağı (asıl gerekli
-// olan license kill-log'dan geliyor) - ama çoğu oyuncu hiç şüpheli bulunmamış
-// olduğu için webhook-system'da neredeyse HİÇBİR ZAMAN bulunamıyor, bu da
-// Promise.all yüzünden kill-log çoktan bitmiş olsa bile TÜM sorguyu 30sn'ye kadar
-// bekletiyordu (canlı testte doğrulandı - "64"/"925" gibi ID'ler 30sn sürdü).
-// Bu yüzden bu özel paralel kontrolde çok daha kısa bir bütçe kullanılıyor.
-const LOOKUP_WEBHOOK_SYSTEM_PARALLEL_BUDGET_MS = 4000;
 
 // Discord'un kendi mesaj arama API'si (kütüphanede zaten VARDI, MessageManager.search() -
 // versiyon yükseltmeye gerek yok, hiç denenmemişti çünkü "botlar embed gönderdiği için
@@ -1631,20 +1618,10 @@ async function findInKillLogs({ playerId, license, timeBudgetMs } = {}) {
         return null;
     };
     const searchQuery = license || playerId || null;
-    // kill-log-hile de AYNI matchFn ile taranıyor ama hangi kanaldan geldiğini ("flagged")
-    // işaretleyip sonuca farklı bir başlık koyuyoruz - normal kill'le otomatik-banlanmış
-    // şüpheli kill'i ayırt edebilmek için.
-    const allChannelIds = [...KILL_LOG_CHANNEL_IDS, KILL_LOG_HILE_CHANNEL_ID];
     const hit = await firstNonNull(
-        allChannelIds.map((channelId) =>
-            scanChannelHistory(channelId, matchFn, timeBudgetMs, searchQuery).then((result) =>
-                result ? { ...result, flagged: channelId === KILL_LOG_HILE_CHANNEL_ID } : null
-            )
-        )
+        KILL_LOG_CHANNEL_IDS.map((channelId) => scanChannelHistory(channelId, matchFn, timeBudgetMs, searchQuery))
     );
-    return hit
-        ? { ...hit, title: hit.flagged ? 'Kill Log (Şüpheli Silah - Otomatik Banlandı)' : 'Kill Log' }
-        : null;
+    return hit ? { ...hit, title: 'Kill Log' } : null;
 }
 
 // connections-webhook embed'i field değil, tek bir metin bloğu (description) -
@@ -1715,49 +1692,6 @@ async function findInConnectionsWebhook({ playerId, license, discordId, name, ti
     );
 }
 
-// webhook-system (Şüpheli Aktivite / Silent Aim raporları) kanalını Kimlik
-// Sorgula'nın ek bir kaynağı olarak tarar - tek bir raporda Name/Steam/Discord/
-// License/Player ID/Log ID hepsi birlikte geliyor, bu yüzden bulunduğunda diğer
-// iki kaynaktan (kill-log, connections-webhook) daha zengin - ama sadece
-// ŞÜPHELİ bulunmuş oyuncuları kapsıyor (herkesi değil, bu yüzden diğer
-// kaynakların YERİNE değil, YANINDA kullanılıyor).
-async function findInWebhookSystem({ playerId, license, discordId, name, timeBudgetMs } = {}) {
-    return scanChannelHistory(
-        SUSPICIOUS_CHANNEL_ID,
-        (message) => {
-            // Kill-log'daki AYNI hatayı burada da tekrarlamamak için (bkz. findInKillLogs
-            // notu) mesajdaki TÜM embed'ler taranıyor, sadece embeds[0] değil.
-            for (const embed of message.embeds || []) {
-                const entryPlayerId = findEmbedField(embed, /player\s*id/i);
-                const entryLicense = findEmbedField(embed, /license/i);
-                const rawDiscord = findEmbedField(embed, /^discord$/i);
-                const entryDiscordId = rawDiscord ? (rawDiscord.match(/\d+/) || [])[0] || null : null;
-                const entryName = findEmbedField(embed, /^name$/i);
-
-                const matches =
-                    (license && entryLicense === license) ||
-                    (playerId && entryPlayerId === playerId) ||
-                    (discordId && entryDiscordId === discordId) ||
-                    (name && entryName && entryName.toLowerCase() === name.toLowerCase());
-                if (!matches) continue;
-
-                return {
-                    name: entryName,
-                    steam: findEmbedField(embed, /steam/i),
-                    discord: entryDiscordId,
-                    license: entryLicense,
-                    playerId: entryPlayerId,
-                    logId: findEmbedField(embed, /log\s*id/i),
-                    title: stripDiscordMarkup(embed.title) || 'Şüpheli Aktivite',
-                };
-            }
-            return null;
-        },
-        timeBudgetMs,
-        license || discordId || playerId || name || null
-    );
-}
-
 // Sorgu metninden tür tahmini: "license:" ile başlıyorsa license, sadece
 // rakamsa uzunluğuna göre Discord ID (snowflake, 15+ hane) ya da Player ID
 // (kısa - sunucuda birkaç yüz oyuncu var), aksi halde isim.
@@ -1792,29 +1726,25 @@ async function resolvePlayerIdentity(query) {
     const type = detectLookupQueryType(q);
 
     if (type === 'playerId') {
-        console.log(`[Kimlik Sorgula] Player ID ${q} için kill-log VE webhook-system paralel taranıyor...`);
-        const [killHit, suspiciousHit] = await Promise.all([
-            findInKillLogs({ playerId: q }),
-            findInWebhookSystem({ playerId: q, timeBudgetMs: LOOKUP_WEBHOOK_SYSTEM_PARALLEL_BUDGET_MS }),
-        ]);
-        const license = killHit?.license || suspiciousHit?.license;
+        console.log(`[Kimlik Sorgula] Player ID ${q} için kill-log taranıyor...`);
+        const killHit = await findInKillLogs({ playerId: q });
+        const license = killHit?.license;
         if (!license) {
-            console.log(`[Kimlik Sorgula] Player ID ${q} ne kill-log'da ne webhook-system'da bulunamadı.`);
+            console.log(`[Kimlik Sorgula] Player ID ${q} kill-log'da bulunamadı.`);
             return null;
         }
-        console.log(`[Kimlik Sorgula] Player ID ${q} -> ${killHit?.name || suspiciousHit?.name} (${license}). Şimdi connections-webhook'ta bulunana kadar (max ${LOOKUP_VERIFY_TIME_BUDGET_MS / 1000}sn) aranıyor...`);
+        console.log(`[Kimlik Sorgula] Player ID ${q} -> ${killHit?.name} (${license}). Şimdi connections-webhook'ta bulunana kadar (max ${LOOKUP_VERIFY_TIME_BUDGET_MS / 1000}sn) aranıyor...`);
 
         const connHit = await findInConnectionsWebhook({ license, timeBudgetMs: LOOKUP_VERIFY_TIME_BUDGET_MS });
         console.log(`[Kimlik Sorgula] connections-webhook sonucu: ${connHit ? `bulundu (online: ${connHit.online})` : 'bulunamadı'}.`);
         const merged = {
-            playerId: killHit?.playerId || suspiciousHit?.playerId || q,
-            name: connHit?.name || suspiciousHit?.name || killHit?.name || null,
-            steam: connHit?.steam || suspiciousHit?.steam || null,
-            discord: connHit?.discord || suspiciousHit?.discord || null,
+            playerId: killHit?.playerId || q,
+            name: connHit?.name || killHit?.name || null,
+            steam: connHit?.steam || null,
+            discord: connHit?.discord || null,
             license,
             ip: connHit?.ip || null,
-            logId: suspiciousHit?.logId || null,
-            title: suspiciousHit?.title || killHit?.title || 'Kill Log',
+            title: killHit?.title || 'Kill Log',
             lastSeenAt: new Date().toISOString(),
             reportCount: 1,
             stale: !connHit?.online,
@@ -1834,46 +1764,39 @@ async function resolvePlayerIdentity(query) {
     // geçmemesi için (kullanıcı isteğiyle, player_index.json artık sadece
     // arşiv/geçmiş kayıt olarak yazılıyor, okunmuyor).
 
-    // Discord ID / isim / license sorgusunda ana kaynak connections-webhook -
-    // en az 30sn taranıyor, webhook-system (Şüpheli Aktivite) ile PARALEL.
-    console.log(`[Kimlik Sorgula] "${q}" (${type}) için connections-webhook VE webhook-system paralel taranıyor (min ${LOOKUP_SCAN_TIME_BUDGET_MS / 1000}sn)...`);
+    // Discord ID / isim / license sorgusunda tek kaynak connections-webhook - en az 30sn taranıyor.
+    console.log(`[Kimlik Sorgula] "${q}" (${type}) için connections-webhook taranıyor (min ${LOOKUP_SCAN_TIME_BUDGET_MS / 1000}sn)...`);
     const connQuery = type === 'discordId' ? { discordId: q } : type === 'license' ? { license: q } : { name: q };
-    const [connHit, suspiciousHit] = await Promise.all([
-        findInConnectionsWebhook({ ...connQuery, timeBudgetMs: LOOKUP_SCAN_TIME_BUDGET_MS }),
-        findInWebhookSystem({ ...connQuery, timeBudgetMs: LOOKUP_WEBHOOK_SYSTEM_PARALLEL_BUDGET_MS }),
-    ]);
-    if (!connHit && !suspiciousHit) {
-        console.log(`[Kimlik Sorgula] "${q}" ne connections-webhook'ta ne webhook-system'da bulunamadı.`);
+    const connHit = await findInConnectionsWebhook({ ...connQuery, timeBudgetMs: LOOKUP_SCAN_TIME_BUDGET_MS });
+    if (!connHit) {
+        console.log(`[Kimlik Sorgula] "${q}" connections-webhook'ta bulunamadı.`);
         return null;
     }
-    console.log(`[Kimlik Sorgula] "${q}" -> ${connHit?.name || suspiciousHit?.name} (connections-webhook: ${connHit ? `bulundu, online: ${connHit.online}` : 'bulunamadı'}, webhook-system: ${suspiciousHit ? 'bulundu' : 'bulunamadı'}).`);
+    console.log(`[Kimlik Sorgula] "${q}" -> ${connHit.name} (connections-webhook: bulundu, online: ${connHit.online}).`);
 
     let killHit = null;
-    if (connHit?.online && connHit.license) {
+    if (connHit.online && connHit.license) {
         console.log(`[Kimlik Sorgula] Kişi online, kill-log'da Player ID aranıyor (max ${LOOKUP_VERIFY_TIME_BUDGET_MS / 1000}sn)...`);
         killHit = await findInKillLogs({ license: connHit.license, timeBudgetMs: LOOKUP_VERIFY_TIME_BUDGET_MS });
         console.log(`[Kimlik Sorgula] kill-log sonucu: ${killHit ? `Player ID ${killHit.playerId}` : 'bulunamadı'}.`);
     }
 
     const merged = {
-        playerId: killHit?.playerId || connHit?.playerId || suspiciousHit?.playerId || null,
-        name: connHit?.name || suspiciousHit?.name || killHit?.name || null,
-        steam: connHit?.steam || suspiciousHit?.steam || null,
-        discord: connHit?.discord || suspiciousHit?.discord || (type === 'discordId' ? q : null),
-        license: connHit?.license || suspiciousHit?.license || killHit?.license || null,
-        ip: connHit?.ip || null,
-        logId: suspiciousHit?.logId || null,
-        title: connHit?.eventTitle || suspiciousHit?.title || null,
+        playerId: killHit?.playerId || connHit.playerId || null,
+        name: connHit.name || killHit?.name || null,
+        steam: connHit.steam || null,
+        discord: connHit.discord || (type === 'discordId' ? q : null),
+        license: connHit.license || killHit?.license || null,
+        ip: connHit.ip || null,
+        title: connHit.eventTitle || null,
         lastSeenAt: new Date().toISOString(),
         reportCount: 1,
-        stale: connHit ? !connHit.online : true,
-        staleNote: !connHit
-            ? "connections-webhook'ta doğrulanamadı (sadece webhook-system raporunda bulundu) - online durumu bilinmiyor, Player ID yok."
-            : !connHit.online
-                ? `Bu kişi şu an oyunda değil (son olay: ${connHit.eventTitle}) - Player ID yok.`
-                : connHit.online && !killHit
-                    ? 'Kişi online ama kill-log\'da bulunamadı - henüz kimseyi öldürmemiş/ölmemiş olabilir, bu yüzden Player ID gösterilemiyor.'
-                    : null,
+        stale: !connHit.online,
+        staleNote: !connHit.online
+            ? `Bu kişi şu an oyunda değil (son olay: ${connHit.eventTitle}) - Player ID yok.`
+            : !killHit
+                ? 'Kişi online ama kill-log\'da bulunamadı - henüz kimseyi öldürmemiş/ölmemiş olabilir, bu yüzden Player ID gösterilemiyor.'
+                : null,
     };
 
     return merged;
