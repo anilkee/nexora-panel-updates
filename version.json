@@ -1,4 +1,4 @@
 {
-  "version": "1.16.1",
-  "changelog": "- Otomatik güncelleme artık sadece açılışta değil, 15 dakikada bir de kontrol ediyor - uygulama günlerce kapatılmadan açık kalsa bile yeni sürümü otomatik alıp kendini yeniden başlatıyor\n- Güncelleme bulununca artık ekranda bekleyen bir onay penceresi yok, bildirimle haber verip hemen yeniden başlıyor (kimse bilgisayar başında olmasa bile)"
+  "version": "1.17.0",
+  "changelog": "- YENİ: Botu kullanan herkesin birbiriyle konuşabildiği bir Sohbet sekmesi eklendi (Discord'dan bağımsız, kendi VDS'inde çalışıyor) - klasik/yan panel/liste+detay yerleşimlerinin hepsinde erişilebilir\n- Sohbette mesaj yazan kişiler kendi Discord profil fotoğrafı ve ismiyle görünüyor\n- VDS'de ayrıca kimlerin bota şu an bağlı olduğunu gösteren ayrı bir web sayfası da açıldı"
 }
