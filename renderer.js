@@ -142,23 +142,22 @@ ipcRenderer.on('lookup-player-result', (event, { result }) => {
         return;
     }
     lookupEmpty.style.display = 'none';
-    if (result.staleNote) {
+    if (result.banned) {
         const warning = document.createElement('p');
         warning.className = 'hint';
-        warning.style.color = 'var(--warn)';
-        warning.textContent = `⚠️ ${result.staleNote}`;
+        warning.style.color = 'var(--danger)';
+        warning.textContent = '🚫 Bu kişi Fiveguard tarafından banlı!';
         lookupResult.appendChild(warning);
     }
     addLookupRow('Oyun İçi ID', result.playerId);
-    addLookupRow('İsim', result.name);
+    addLookupRow('Steam İsmi', result.name);
     addLookupRow('Steam', result.steam);
     addLookupRow('Discord', result.discord);
     addLookupRow('License', result.license);
-    addLookupRow('IP', result.ip);
-    addLookupRow('Rapor Türü', result.title);
-    addLookupRow('Rapor Sayısı', String(result.reportCount || 1));
+    addLookupRow('Oyunda mı?', result.online === null || result.online === undefined ? null : (result.online ? 'Evet' : 'Hayır'));
+    addLookupRow('FG Banlı mı?', result.banned === null || result.banned === undefined ? null : (result.banned ? 'Evet' : 'Hayır'));
     if (result.lastSeenAt) {
-        addLookupRow('Son Görülme', new Date(result.lastSeenAt).toLocaleString('tr-TR'));
+        addLookupRow('Sorgu Zamanı', new Date(result.lastSeenAt).toLocaleString('tr-TR'));
     }
     lookupResult.style.display = 'block';
     acCallBtn.disabled = false;
@@ -1073,19 +1072,20 @@ function renderDetailInfoFields(channelId, info) {
     grid.appendChild(detailField('Oyun İçi ID', info.gameId));
     grid.appendChild(detailField('License', info.license));
     grid.appendChild(detailField('Discord', info.discordId));
-    grid.appendChild(detailField('Steam', info.steam));
+    grid.appendChild(detailField('Steam', info.steamName ? `${info.steamName} (${info.steam || '—'})` : info.steam));
     ldDetailInfo.appendChild(grid);
 
+    // /player-info'nun kendi cevabı - artık eskisi gibi "reason metninde ban geçiyor mu"
+    // tahmini değil, FG botunun DOĞRUDAN/güncel "FG Banlı mı?" cevabı.
     if (info.banned) {
         const banBox = document.createElement('div');
         banBox.className = 'ld-detail-ban';
-        banBox.innerHTML = `${iconHtml('ban')}<span></span>`;
-        banBox.querySelector('span').textContent = `Son bağlantı sebebi banla ilgili görünüyor: ${info.lastEventReason}`;
+        banBox.innerHTML = `${iconHtml('ban')}<span>Fiveguard tarafından banlı</span>`;
         ldDetailInfo.appendChild(banBox);
-    } else if (info.lastEventReason) {
+    } else if (info.online !== null && info.online !== undefined) {
         const hint = document.createElement('div');
         hint.className = 'ld-detail-hint';
-        hint.textContent = `Son bağlantı: ${info.lastEventReason}${info.lastEventOnline ? ' (şu an oyunda)' : ''}`;
+        hint.textContent = info.online ? 'Şu an oyunda.' : 'Şu an oyunda değil.';
         ldDetailInfo.appendChild(hint);
     }
 }
