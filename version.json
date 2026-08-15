@@ -1,4 +1,4 @@
 {
-  "version": "1.15.0",
-  "changelog": "- Kimlik Sorgula tamamen yenilendi: artık FG botunun /player-info komutuyla TEK seferde ve GÜNCEL sonuç veriyor (eski dakikalarca süren kill-log/connections-webhook taraması kaldırıldı)\n- Kimlik Sorgula artık SADECE Discord ID ve Oyun İçi (Player) ID ile arıyor - license/isimle arama kaldırıldı\n- Sonuçlarda artık gerçek/güncel \"Oyunda mı?\" ve \"FG Banlı mı?\" bilgisi gösteriliyor\n- Liste + Detay panelindeki otomatik ticket kimlik bilgisi de aynı güncel kaynağa taşındı\n- Bir slash komutu gönderim hatası (sendSlash) ve gecikmeli/düzenlenen bot yanıtlarının kaçırılması sorunu düzeltildi\n- 3 panel yerleşimi (Klasik / Yan Panel / Liste + Detay) Ayarlar'dan seçilebiliyor\n- Yeni MD PVP logosu, özel başlık çubuğu ve kaydırma çubuğu"
+  "version": "1.15.1",
+  "changelog": "- Bug fix: !id komutuna birden fazla yetkilinin bot instance'ı aynı anda tam sonuç yazabiliyordu (dedup mekanizması bazı durumlarda başarısız oluyordu)\n- Sorgu bazlı etiketleme + son bir çapraz kontrol eklenerek dedup güçlendirildi, kanalda artık en fazla tek sonuç mesajı kalıyor"
 }
