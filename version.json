@@ -1,4 +1,4 @@
 {
-  "version": "1.15.1",
-  "changelog": "- Bug fix: !id komutuna birden fazla yetkilinin bot instance'ı aynı anda tam sonuç yazabiliyordu (dedup mekanizması bazı durumlarda başarısız oluyordu)\n- Sorgu bazlı etiketleme + son bir çapraz kontrol eklenerek dedup güçlendirildi, kanalda artık en fazla tek sonuç mesajı kalıyor"
+  "version": "1.16.0",
+  "changelog": "- !id komutu artık kullanıcının kendi VDS'inde çalışan merkezi bir sunucu üzerinden koordine ediliyor - birden fazla yetkilinin aynı sorguya aynı anda cevap vermesi sorununun kökten çözümü\n- Artık hiçbir panel açık olmasa bile VDS kendisi !id komutuna yanıt verebiliyor\n- VDS sunucusuna ulaşılamazsa eski (mesaj tabanlı) yönteme otomatik düşülüyor"
 }
