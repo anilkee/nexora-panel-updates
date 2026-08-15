@@ -263,12 +263,12 @@
 
         <div class="card" id="lookupCard">
             <h2><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</h2>
-            <label class="field-label">Oyun İçi ID, İsim, Steam, Discord veya License</label>
+            <label class="field-label">Oyun İçi ID veya Discord ID</label>
             <div class="lookup-input-row">
                 <input type="text" id="lookupInput" placeholder="Örn: 3852">
                 <button class="primary-btn lookup-search-btn" id="lookupBtn"><svg class="icon"><use href="#icon-search"></use></svg></button>
             </div>
-            <p class="lookup-hint">Player ID, Discord ID, isim veya License ile arar. Kill-log ve connections-webhook kanalları birlikte taranır; Player ID ile bulunan license connections-webhook'ta doğrulanır, Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
+            <p class="lookup-hint">Sadece Oyun İçi ID veya Discord ID ile arar (FG botunun /player-info komutu üzerinden, tek seferde ve güncel sonuç - license/isimle arama artık desteklenmiyor).</p>
             <div id="lookupResult" style="display: none; margin-top: 8px;"></div>
             <button class="primary-btn" id="acCallBtn" style="display: none; width: 100%; margin-top: 12px;"><svg class="icon"><use href="#icon-flag"></use></svg><span>AC Çağır</span></button>
             <button class="primary-btn" id="acSpamBtn" style="display: none; width: 100%; margin-top: 8px; background: var(--danger);"><svg class="icon"><use href="#icon-alert"></use></svg><span>Spam (10x)</span></button>
@@ -730,23 +730,22 @@
                 return;
             }
             lookupEmpty.style.display = 'none';
-            if (result.staleNote) {
+            if (result.banned) {
                 const warning = document.createElement('p');
                 warning.className = 'lookup-hint';
-                warning.style.color = 'var(--warn)';
-                warning.textContent = `⚠️ ${result.staleNote}`;
+                warning.style.color = 'var(--danger)';
+                warning.textContent = '🚫 Bu kişi Fiveguard tarafından banlı!';
                 lookupResult.appendChild(warning);
             }
             addLookupRow('Oyun İçi ID', result.playerId);
-            addLookupRow('İsim', result.name);
+            addLookupRow('Steam İsmi', result.name);
             addLookupRow('Steam', result.steam);
             addLookupRow('Discord', result.discord);
             addLookupRow('License', result.license);
-            addLookupRow('IP', result.ip);
-            addLookupRow('Rapor Türü', result.title);
-            addLookupRow('Rapor Sayısı', String(result.reportCount || 1));
+            addLookupRow('Oyunda mı?', result.online === null || result.online === undefined ? null : (result.online ? 'Evet' : 'Hayır'));
+            addLookupRow('FG Banlı mı?', result.banned === null || result.banned === undefined ? null : (result.banned ? 'Evet' : 'Hayır'));
             if (result.lastSeenAt) {
-                addLookupRow('Son Görülme', new Date(result.lastSeenAt).toLocaleString('tr-TR'));
+                addLookupRow('Sorgu Zamanı', new Date(result.lastSeenAt).toLocaleString('tr-TR'));
             }
             lookupResult.style.display = 'block';
             acCallBtn.style.display = 'flex';
