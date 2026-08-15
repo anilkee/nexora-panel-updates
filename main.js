@@ -96,7 +96,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.15.1';
+const CURRENT_VERSION = '1.16.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -1807,6 +1807,45 @@ async function resolvePlayerIdentity(query) {
     };
 }
 
+// --- MERKEZİ CLAIM SUNUCUSU (VDS) ---
+// Canlıda "3 arkadaşın instance'ı da AYNI '!id' sorgusuna aynı anda tam sonuç yazdı" bug'ı
+// bulundu - Discord mesajlarının GÖRÜNÜRLÜĞÜNE dayalı dedup (aşağıdaki findIdCommandClaimReplies)
+// farklı hesapların birbirinin mesajını her zaman güvenilir görememesi yüzünden yetersiz kaldı.
+// Kullanıcının kendi VDS'inde (185.211.100.43, Windows Server, "NexoraClaimServer" adında
+// zamanlanmış görev olarak sürekli çalışıyor - `claim-server.js`, node.js) TEK bir merkezi
+// HTTP sunucu kuruldu: her instance bir "!id" sorgusu gördüğünde ÖNCE buraya "/claim" ile
+// sorar, sunucu atomik "ilk gelen kazanır" cevabı verir - Discord'un mesaj görünürlüğüne HİÇ
+// bağımlı değil, KESİN/tek doğru kaynak. Sunucuya ulaşılamazsa (VDS kapalı/ağ sorunu) SESSİZCE
+// eski Discord-mesaj-tabanlı yönteme düşülüyor (defense-in-depth - tek noktaya bağımlı kalmasın
+// diye eski yöntem TAMAMEN kaldırılmadı, sadece ikincil hale getirildi).
+const CLAIM_SERVER_URL = 'http://185.211.100.43:28417';
+const CLAIM_SERVER_SECRET = 'b3e065981d624d52528a60a274daebba946007673aa33999';
+const CLAIM_SERVER_TIMEOUT_MS = 4000;
+
+async function claimViaServer(key) {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), CLAIM_SERVER_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(`${CLAIM_SERVER_URL}/claim`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Claim-Secret': CLAIM_SERVER_SECRET },
+                body: JSON.stringify({ key, botId: client.user.id }),
+                signal: controller.signal,
+            });
+        } finally {
+            clearTimeout(timeout);
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        return { winner: !!data.winner, winnerBotId: data.winnerBotId };
+    } catch (error) {
+        console.log(`[Claim Sunucusu] Ulaşılamadı (${error.message}) - eski Discord-mesaj tabanlı yönteme düşülüyor.`);
+        return null; // null = sunucu başarısız/ulaşılamadı, çağıran taraf eski yönteme düşmeli
+    }
+}
+
 // --- "!id <sorgu>" KOMUTU (yetkili sohbet/bot-komut kanalları) ---
 // Bu botu kullanan birkaç arkadaşın kendi bot instance'ı da AYNI kanalları dinliyor -
 // biri "!id 256" yazınca hepsi aynı anda görüyor, hepsi cevap verirse aynı sonuç 5 kez
@@ -1870,43 +1909,78 @@ async function findIdCommandClaimReplies(commandMessage, query) {
 }
 
 async function handleIdCommand(message, query) {
-    // Rastgele mikro-gecikme (100-900ms) - tüm instance'lar komutu AYNI ANDA görüyor,
-    // bu gecikme "hepsi aynı milisaniyede claim mesajı atar" çakışmasını azaltır ama TEK
-    // BAŞINA yeterli değil, bu yüzden aşağıda bir de DETERMİNİSTİK TIE-BREAK adımı var.
-    await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 900));
-
     let claimMessage;
-    try {
-        const existing = await findIdCommandClaimReplies(message, query);
-        if (existing.length > 0) {
-            console.log(`[!id] "${query}" için başka bir instance zaten üstlenmiş, atlanıyor.`);
+
+    // ÖNCELİK 1: merkezi claim sunucusu (VDS) - atomik/kesin cevap veriyor, kullanılabilirse
+    // aşağıdaki Discord-mesaj-tabanlı adımların (rastgele gecikme, "sakinleşme", tie-break,
+    // son güvenlik kontrolü) HİÇBİRİNE gerek kalmıyor - message.id zaten global-benzersiz.
+    const serverResult = await claimViaServer(message.id);
+    if (serverResult) {
+        if (!serverResult.winner) {
+            console.log(`[!id] "${query}" için claim sunucusu başka bir instance'ı (${serverResult.winnerBotId}) kazanan gösterdi, atlanıyor.`);
             return;
         }
-        claimMessage = await message.reply(buildIdCommandClaimText(query));
-    } catch (error) {
-        console.log(`[!id] Claim aşamasında hata: ${error.message}`);
-        return;
-    }
+        console.log(`[!id] "${query}" claim sunucusundan kazanıldı.`);
+        try {
+            claimMessage = await message.reply(buildIdCommandClaimText(query));
+        } catch (error) {
+            console.log(`[!id] Claim mesajı gönderilemedi: ${error.message}`);
+            return;
+        }
+    } else {
+        // ÖNCELİK 2 (FALLBACK): sunucuya ulaşılamadı - eski Discord-mesaj-tabanlı yöntem.
+        // Rastgele mikro-gecikme (100-900ms) - tüm instance'lar komutu AYNI ANDA görüyor,
+        // bu gecikme "hepsi aynı milisaniyede claim mesajı atar" çakışmasını azaltır ama TEK
+        // BAŞINA yeterli değil, bu yüzden aşağıda bir de DETERMİNİSTİK TIE-BREAK adımı var.
+        await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 900));
+        try {
+            const existing = await findIdCommandClaimReplies(message, query);
+            if (existing.length > 0) {
+                console.log(`[!id] "${query}" için başka bir instance zaten üstlenmiş, atlanıyor.`);
+                return;
+            }
+            claimMessage = await message.reply(buildIdCommandClaimText(query));
+        } catch (error) {
+            console.log(`[!id] Claim aşamasında hata: ${error.message}`);
+            return;
+        }
 
-    // "Sakinleşme" süresi - neredeyse aynı anda birden fazla instance da claim mesajı
-    // göndermiş olabilir. Kısa bir süre bekleyip TEKRAR kontrol ediyoruz - bu sürede diğer
-    // olası claim'ler de Discord'a işlenmiş olur. Birden fazla claim varsa DETERMİNİSTİK
-    // bir kazanan seçiyoruz (en küçük Discord kullanıcı ID'si) - kaybedenler kendi claim
-    // mesajlarını silip çekiliyor. Canlıdaki bug'dan sonra süre biraz uzatıldı (2-3.5sn).
-    await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1500));
-    try {
-        const claimants = await findIdCommandClaimReplies(message, query);
-        if (claimants.length > 1) {
-            const winnerId = claimants.reduce((min, m) => (BigInt(m.author.id) < BigInt(min) ? m.author.id : min), claimants[0].author.id);
-            if (winnerId !== client.user.id) {
-                console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kaybedildi (kazanan: ${winnerId}) - claim mesajım siliniyor.`);
+        // "Sakinleşme" süresi - neredeyse aynı anda birden fazla instance da claim mesajı
+        // göndermiş olabilir. Kısa bir süre bekleyip TEKRAR kontrol ediyoruz - bu sürede diğer
+        // olası claim'ler de Discord'a işlenmiş olur. Birden fazla claim varsa DETERMİNİSTİK
+        // bir kazanan seçiyoruz (en küçük Discord kullanıcı ID'si) - kaybedenler kendi claim
+        // mesajlarını silip çekiliyor. Canlıdaki bug'dan sonra süre biraz uzatıldı (2-3.5sn).
+        await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1500));
+        try {
+            const claimants = await findIdCommandClaimReplies(message, query);
+            if (claimants.length > 1) {
+                const winnerId = claimants.reduce((min, m) => (BigInt(m.author.id) < BigInt(min) ? m.author.id : min), claimants[0].author.id);
+                if (winnerId !== client.user.id) {
+                    console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kaybedildi (kazanan: ${winnerId}) - claim mesajım siliniyor.`);
+                    await claimMessage.delete().catch(() => {});
+                    return;
+                }
+                console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kazanıldı - devam ediliyor.`);
+            }
+        } catch (error) {
+            console.log(`[!id] Tie-break kontrolü yapılamadı (${error.message}), yine de devam ediliyor.`);
+        }
+
+        // SON GÜVENLİK KONTROLÜ (sadece fallback yolunda - sunucu yolunda zaten atomik/kesin):
+        // sonucu paylaşmadan HEMEN önce, sorgu sürerken başka bir instance zaten TAM SONUÇ
+        // paylaşmış mı diye bakılıyor - tie-break yine de yanlış giderse bile bu SON çapraz
+        // kontrol ikinci bir sonucun yazılmasını engelliyor.
+        try {
+            const finalCheck = await findIdCommandClaimReplies(message, query);
+            const alreadyAnswered = finalCheck.some((m) => m.id !== claimMessage.id && /^(🔎|❌|⚠️)/.test(m.content || ''));
+            if (alreadyAnswered) {
+                console.log(`[!id] "${query}" için başka bir instance bu arada zaten sonucu paylaşmış - kendi claim mesajım siliniyor, ikinci sonuç yazılmıyor.`);
                 await claimMessage.delete().catch(() => {});
                 return;
             }
-            console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kazanıldı - devam ediliyor.`);
+        } catch (error) {
+            console.log(`[!id] Son güvenlik kontrolü yapılamadı (${error.message}), yine de sonuç paylaşılıyor.`);
         }
-    } catch (error) {
-        console.log(`[!id] Tie-break kontrolü yapılamadı (${error.message}), yine de devam ediliyor.`);
     }
 
     console.log(`[!id] "${query}" sorgusu üstlenildi, aranıyor...`);
@@ -1917,22 +1991,6 @@ async function handleIdCommand(message, query) {
     } catch (error) {
         console.log(`[Hata] !id "${query}": ${error.message}`);
         resultText = `⚠️ Hata ("${query}"): ${error.message}`;
-    }
-
-    // SON GÜVENLİK KONTROLÜ: sonucu paylaşmadan HEMEN önce, sorgu sürerken (birkaç saniye
-    // içinde) başka bir instance zaten TAM SONUÇ paylaşmış mı diye bakılıyor - yukarıdaki
-    // tie-break yine de yanlış giderse bile bu SON çapraz kontrol ikinci bir sonucun
-    // yazılmasını engelliyor. Kaybedersek kendi claim mesajımızı sessizce silip çıkıyoruz.
-    try {
-        const finalCheck = await findIdCommandClaimReplies(message, query);
-        const alreadyAnswered = finalCheck.some((m) => m.id !== claimMessage.id && /^(🔎|❌|⚠️)/.test(m.content || ''));
-        if (alreadyAnswered) {
-            console.log(`[!id] "${query}" için başka bir instance bu arada zaten sonucu paylaşmış - kendi claim mesajım siliniyor, ikinci sonuç yazılmıyor.`);
-            await claimMessage.delete().catch(() => {});
-            return;
-        }
-    } catch (error) {
-        console.log(`[!id] Son güvenlik kontrolü yapılamadı (${error.message}), yine de sonuç paylaşılıyor.`);
     }
 
     try {
