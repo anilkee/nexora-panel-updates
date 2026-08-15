@@ -95,12 +95,16 @@ const crypto = require('crypto');
 // --- OTOMATİK GÜNCELLEME ---
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
-// dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.16.0';
+// dosyaları indirip üzerine yazar ve kendini yeniden başlatır. AYRICA (kullanıcı isteğiyle -
+// artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
+// aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
+// setInterval.
+const CURRENT_VERSION = '1.16.1';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
 const UPDATE_FILES = ['main.js', 'index.html', 'renderer.js', 'mobile.html', 'setup.html'];
+const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000; // periyodik kontrol - 15 dakikada bir
 
 async function fetchUpdateRepoFile(filePath) {
     const res = await fetch(
@@ -134,12 +138,19 @@ async function checkForUpdates() {
             console.log(`[Güncelleme] ${file} güncellendi.`);
         }
 
-        await dialog.showMessageBox({
-            type: 'info',
-            title: `✅ Nexora Panel v${remote.version} güncellendi`,
-            message: `Yenilikler:\n\n${remote.changelog || '-'}\n\nUygulama şimdi yeniden başlatılacak.`,
-            buttons: ['Tamam']
-        });
+        // ÖNCEDEN burada BLOKLAYICI bir dialog.showMessageBox vardı ("Tamam" tıklanana kadar
+        // relaunch beklerdi) - artık periyodik kontroller de (bkz. UPDATE_CHECK_INTERVAL_MS)
+        // aynı fonksiyonu kullandığı için, kullanıcı ekranın başında değilken güncelleme
+        // "Tamam"a tıklanana kadar askıda kalırdı. Bunun yerine uygulamanın zaten başka
+        // yerlerde kullandığı BLOKLAMAYAN Windows bildirimi kullanılıyor - relaunch hemen
+        // gerçekleşiyor, kimse bildirimi görmese/tıklamasa bile güncelleme tamamlanır.
+        if (Notification.isSupported()) {
+            const notification = new Notification({
+                title: `✅ Nexora Panel v${remote.version} güncellendi`,
+                body: (remote.changelog || '').split('\n')[0] || 'Uygulama yeniden başlatılıyor...',
+            });
+            notification.show();
+        }
 
         app.relaunch();
         app.exit();
@@ -1459,6 +1470,14 @@ ipcMain.on('save-setup', (event, values) => {
 
 app.on('ready', async () => {
     await checkForUpdates(); // güncelleme varsa burada indirip yeniden başlatır, devam etmez
+
+    // Uygulama günlerce kapatılmadan açık kalabildiği için (herkes artık VDS'e bağlı, elle
+    // yeniden başlatmaya gerek kalmıyor) SADECE açılışta değil, periyodik olarak da tekrar
+    // kontrol ediliyor - yeni bir sürüm bulunursa checkForUpdates kendi içinde indirip
+    // relaunch ediyor, burada ekstra bir şey yapmaya gerek yok.
+    setInterval(() => {
+        checkForUpdates();
+    }, UPDATE_CHECK_INTERVAL_MS);
 
     if (isConfigComplete()) {
         startApp();
