@@ -91,6 +91,7 @@ const { exec } = require('child_process');
 const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
+const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlılığı - ayrı kurulum gerekmiyor
 
 // --- OTOMATİK GÜNCELLEME ---
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
@@ -99,7 +100,7 @@ const crypto = require('crypto');
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.16.1';
+const CURRENT_VERSION = '1.17.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -1865,6 +1866,99 @@ async function claimViaServer(key) {
     }
 }
 
+// --- SOHBET (botu kullanan herkesin birbiriyle konuştuğu, Discord'dan BAĞIMSIZ sistem) ---
+// Kullanıcı "yeni bir sekme, botu kullanan herkesin birbiriyle konuşabileceği bir sistem, VDS
+// üzerinden hallet, Discord'a bağlı olmasın" dedi. VDS'de sürekli çalışan `chat-server.js`'e
+// (aynı desende: paylaşımlı secret, Task Scheduler ile kalıcı - ama claim sunucusundan AYRI
+// port/süreç, biri çökerse diğerini etkilemesin diye) WebSocket ile bağlanılıyor. Kimlik
+// (avatar+isim) zaten giriş yapılmış Discord hesabından okunuyor ama MESAJLAŞMANIN KENDİSİ
+// Discord API'sini hiç kullanmıyor - sunucu sadece bağlı herkese "kim, ne yazdı" broadcast ediyor.
+const CHAT_SERVER_URL = 'ws://185.211.100.43:28418';
+const CHAT_SERVER_SECRET = '2b3a9e6dec63450c4c13dbf10bad0fc283f1a2e578baeef5';
+const CHAT_RECONNECT_DELAY_MS = 5000;
+
+let chatSocket = null;
+let chatReconnectTimer = null;
+// Renderer'daki sohbet sekmesi WS bağlantısı kurulduktan ÇOK SONRA (kullanıcı sekmeye ilk kez
+// geçtiğinde) açılabiliyor - o ana kadar gelen 'history'/'presence' mesajları kaçmasın diye
+// son halleri burada da tutuluyor, sekme açılınca 'request-chat-state' ile bunlar isteniyor.
+let lastChatHistory = [];
+let lastChatPresence = [];
+
+function connectChatSocket() {
+    if (!client.user) return; // Discord'a henüz giriş yapılmadı, isim/avatar hazır değil
+    if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
+
+    let socket;
+    try {
+        socket = new WebSocket(CHAT_SERVER_URL);
+    } catch (error) {
+        console.log(`[Sohbet] Bağlantı kurulamadı: ${error.message}`);
+        scheduleChatReconnect();
+        return;
+    }
+    chatSocket = socket;
+
+    socket.on('open', () => {
+        console.log('[Sohbet] VDS sohbet sunucusuna bağlandı.');
+        socket.send(JSON.stringify({
+            type: 'hello',
+            secret: CHAT_SERVER_SECRET,
+            userId: client.user.id,
+            username: client.user.displayName || client.user.username,
+            avatarUrl: client.user.displayAvatarURL({ size: 128 }),
+        }));
+    });
+
+    socket.on('message', (raw) => {
+        let msg;
+        try {
+            msg = JSON.parse(raw.toString());
+        } catch (error) {
+            return;
+        }
+        if (msg.type === 'history') lastChatHistory = msg.messages || [];
+        if (msg.type === 'presence') lastChatPresence = msg.users || [];
+        if (msg.type === 'message') {
+            lastChatHistory = [...lastChatHistory, msg].slice(-200);
+        }
+        if (mainWindow) mainWindow.webContents.send('chat-event', msg);
+    });
+
+    socket.on('close', () => {
+        console.log('[Sohbet] Bağlantı koptu, birkaç saniye sonra yeniden denenecek.');
+        if (chatSocket === socket) chatSocket = null;
+        scheduleChatReconnect();
+    });
+
+    socket.on('error', (error) => {
+        console.log(`[Sohbet] Bağlantı hatası: ${error.message}`);
+    });
+}
+
+function scheduleChatReconnect() {
+    if (chatReconnectTimer) return;
+    chatReconnectTimer = setTimeout(() => {
+        chatReconnectTimer = null;
+        connectChatSocket();
+    }, CHAT_RECONNECT_DELAY_MS);
+}
+
+ipcMain.on('chat-send', (event, text) => {
+    const trimmed = String(text || '').trim();
+    if (!trimmed || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+    chatSocket.send(JSON.stringify({ type: 'message', text: trimmed }));
+});
+
+// Renderer sohbet sekmesini açtığında (WS bağlantısı ondan çok önce kurulmuş olabilir) mevcut
+// geçmiş+online listesini almak için bunu çağırıyor.
+ipcMain.on('request-chat-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    win.webContents.send('chat-event', { type: 'history', messages: lastChatHistory });
+    win.webContents.send('chat-event', { type: 'presence', users: lastChatPresence });
+});
+
 // --- "!id <sorgu>" KOMUTU (yetkili sohbet/bot-komut kanalları) ---
 // Bu botu kullanan birkaç arkadaşın kendi bot instance'ı da AYNI kanalları dinliyor -
 // biri "!id 256" yazınca hepsi aynı anda görüyor, hepsi cevap verirse aynı sonuç 5 kez
@@ -2185,6 +2279,7 @@ client.on('ready', () => {
     catchUpSuspiciousChannel();
     catchUpFiveguardChannel();
     refreshMyTickets();
+    connectChatSocket();
 });
 
 client.on('channelCreate', async (channel) => {
