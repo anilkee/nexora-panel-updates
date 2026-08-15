@@ -1,4 +1,4 @@
 {
-  "version": "1.16.0",
-  "changelog": "- !id komutu artık kullanıcının kendi VDS'inde çalışan merkezi bir sunucu üzerinden koordine ediliyor - birden fazla yetkilinin aynı sorguya aynı anda cevap vermesi sorununun kökten çözümü\n- Artık hiçbir panel açık olmasa bile VDS kendisi !id komutuna yanıt verebiliyor\n- VDS sunucusuna ulaşılamazsa eski (mesaj tabanlı) yönteme otomatik düşülüyor"
+  "version": "1.16.1",
+  "changelog": "- Otomatik güncelleme artık sadece açılışta değil, 15 dakikada bir de kontrol ediyor - uygulama günlerce kapatılmadan açık kalsa bile yeni sürümü otomatik alıp kendini yeniden başlatıyor\n- Güncelleme bulununca artık ekranda bekleyen bir onay penceresi yok, bildirimle haber verip hemen yeniden başlıyor (kimse bilgisayar başında olmasa bile)"
 }
