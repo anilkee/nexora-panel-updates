@@ -731,8 +731,12 @@ function setActiveSection(name) {
     });
     if (name === 'settings') ipcRenderer.send('request-debug-log');
     // Sohbet sekmesine her girişte en alta kaydır - kullanıcı sekmeyi açtığında en son
-    // mesajları görsün, geçmişin başında kalmasın.
-    if (name === 'chat') scrollChatToBottom();
+    // mesajları görsün, geçmişin başında kalmasın. Ayrıca okunmamış rozetini sıfırla.
+    if (name === 'chat') {
+        scrollChatToBottom();
+        unreadChatCount = 0;
+        updateChatBadge();
+    }
 }
 
 document.querySelectorAll('.nav-target').forEach((el) => {
@@ -822,6 +826,23 @@ function renderChatPresence(users) {
     chatOnlineHint.textContent = count > 0 ? `${count} kişi bağlı` : '';
 }
 
+// --- Sohbet sekmesi AKTİF DEĞİLKEN gelen mesajlar için nav butonlarında (klasik dişli/sidebar
+// ikonu/list-detail sekmesi - hepsi ".chat-nav-badge" taşıyor) küçük bir sayaç rozeti. Sekmeye
+// girilince (setActiveSection) sıfırlanıyor.
+let unreadChatCount = 0;
+const chatNavBadges = document.querySelectorAll('.chat-nav-badge');
+
+function updateChatBadge() {
+    chatNavBadges.forEach((el) => {
+        if (unreadChatCount > 0) {
+            el.textContent = unreadChatCount > 9 ? '9+' : String(unreadChatCount);
+            el.style.display = 'block';
+        } else {
+            el.style.display = 'none';
+        }
+    });
+}
+
 ipcRenderer.on('chat-event', (event, msg) => {
     if (!msg) return;
     if (msg.type === 'history') {
@@ -830,7 +851,12 @@ ipcRenderer.on('chat-event', (event, msg) => {
         renderChatPresence(msg.users);
     } else if (msg.type === 'message') {
         appendChatMessage(msg);
-        if (document.body.dataset.section === 'chat') scrollChatToBottom();
+        if (document.body.dataset.section === 'chat') {
+            scrollChatToBottom();
+        } else {
+            unreadChatCount++;
+            updateChatBadge();
+        }
     }
 });
 
