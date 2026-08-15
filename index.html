@@ -548,12 +548,12 @@
             <div class="card" id="lookupCard">
                 <h2><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</h2>
                 <div class="field">
-                    <label>Oyun İçi ID, İsim, Steam, Discord veya License</label>
+                    <label>Oyun İçi ID veya Discord ID</label>
                     <div style="display: flex; gap: 8px;">
                         <input type="text" id="lookupInput" placeholder="Örn: 3852" style="flex: 1 1 auto; min-width: 0;">
                         <button class="primary" id="lookupBtn" style="width: 40px; flex: 0 0 40px; padding: 0;"><svg class="icon"><use href="#icon-search"></use></svg></button>
                     </div>
-                    <p class="hint">Player ID, Discord ID, isim veya License ile arar. Kill-log ve connections-webhook kanalları birlikte taranır; Player ID ile bulunan license connections-webhook'ta doğrulanır, Discord ID/isim/License ile önce connections-webhook taranır, kişi online çıkarsa license'ıyla kill-log'da Player ID'si de aranır.</p>
+                    <p class="hint">Sadece Oyun İçi ID veya Discord ID ile arar (FG botunun /player-info komutu üzerinden, tek seferde ve güncel sonuç - license/isimle arama artık desteklenmiyor).</p>
                 </div>
                 <div id="lookupResult" style="display: none;"></div>
                 <button class="primary" id="acCallBtn" style="display: none; margin-top: 10px;"><svg class="icon"><use href="#icon-flag"></use></svg><span class="label">AC Çağır</span></button>
