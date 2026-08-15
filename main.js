@@ -96,7 +96,7 @@ const crypto = require('crypto');
 // Her yeni sürüm çıkardığında bu numarayı artır ve nexora-panel-updates repo'sundaki
 // version.json + dosyaları güncelle. Program açılışta bunu kontrol eder, farklıysa
 // dosyaları indirip üzerine yazar ve kendini yeniden başlatır.
-const CURRENT_VERSION = '1.15.0';
+const CURRENT_VERSION = '1.15.1';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -1826,10 +1826,23 @@ async function resolvePlayerIdentity(query) {
 // 4. Kazanan sorguyu çözüp SONUCU claim mesajına EDİT ile yazar (yeni mesaj atmaz) - yani
 //    kanalda hep TEK bir mesaj kalır: önce "aranıyor...", sonra sonuç.
 const ID_COMMAND_CHANNEL_IDS = ['1475520758095544490', '1470230482649223197', '1470230478274564289', '1502372307887194132', '1470230475485479097'];
-const ID_COMMAND_CLAIM_TEXT = '🔍 Sorgu üstlenildi, aranıyor...';
+const ID_COMMAND_CLAIM_PREFIX = '🔍 Sorgu üstlenildi, aranıyor...';
+
+// CANLIDA BULUNAN BUG (2026-08-14, Player ID 217 sorgusu): 3 instance de AYNI ANDA tam
+// sonuç yazdı - yani her biri diğerlerinin claim'ini GÖREMEDİ. Kök sebep kesin doğrulanamadı
+// (muhtemelen m.reference?.messageId eşleşmesi FARKLI bir bot instance'ının REST ile fetch
+// ettiği mesajlarda güvenilir dolmuyor) ama tek bir zayıf noktaya bağımlı kalmamak için 3
+// KATMANLI hale getirildi: (1) claim/sonuç metninin KENDİSİNE sorguya özel bir etiket
+// ("(sorgu)") eklendi - eşleşme artık .reference'a bağımlı DEĞİL, mesaj içeriğinden de
+// anlaşılıyor. (2) "sakinleşme" süresi uzatıldı. (3) Sonucu PAYLAŞMADAN hemen önce SON bir
+// çapraz kontrol eklendi - yukarıdaki tie-break her nasılsa yine yanlış giderse bile bu son
+// kontrol ikinci bir tam sonucun yazılmasını engelliyor.
+function buildIdCommandClaimText(query) {
+    return `${ID_COMMAND_CLAIM_PREFIX} ("${query}")`;
+}
 
 function formatIdCommandResult(query, result) {
-    if (!result) return `❌ "${query}" için sonuç bulunamadı.`;
+    if (!result) return `❌ Sonuç bulunamadı ("${query}")`;
     const lines = [`🔎 **Kimlik Sorgu Sonucu** ("${query}")`];
     if (result.playerId) lines.push(`Oyun İçi ID: ${result.playerId}`);
     if (result.name) lines.push(`Steam İsmi: ${result.name}`);
@@ -1841,10 +1854,19 @@ function formatIdCommandResult(query, result) {
     return lines.join('\n');
 }
 
-// Komuttan SONRA gelen, ona REPLY olan bot mesajlarını (claim/cevap mesajları) döndürür.
-async function findIdCommandClaimReplies(commandMessage) {
-    const recent = await commandMessage.channel.messages.fetch({ limit: 20, after: commandMessage.id });
-    return [...recent.values()].filter((m) => m.author.bot && m.reference?.messageId === commandMessage.id);
+// Komuttan SONRA gelen, bu SORGUYA ait claim/sonuç bot mesajlarını döndürür. .reference
+// eşleşmesi hâlâ birinci sinyal (en kesin olan) ama TEK BAŞINA yeterli çıkmadığı için (bkz.
+// yukarıdaki bug notu) mesaj içeriğindeki "(sorgu)" etiketi de yedek sinyal olarak kontrol
+// ediliyor - claim VE sonuç metinlerinin İKİSİ de bu etiketi içeriyor (bkz. buildIdCommandClaimText
+// / formatIdCommandResult).
+async function findIdCommandClaimReplies(commandMessage, query) {
+    const recent = await commandMessage.channel.messages.fetch({ limit: 50, after: commandMessage.id });
+    const queryTag = `("${query}")`;
+    return [...recent.values()].filter((m) => {
+        if (!m.author?.bot) return false;
+        if (m.reference?.messageId === commandMessage.id) return true;
+        return typeof m.content === 'string' && m.content.includes(queryTag);
+    });
 }
 
 async function handleIdCommand(message, query) {
@@ -1855,12 +1877,12 @@ async function handleIdCommand(message, query) {
 
     let claimMessage;
     try {
-        const existing = await findIdCommandClaimReplies(message);
+        const existing = await findIdCommandClaimReplies(message, query);
         if (existing.length > 0) {
             console.log(`[!id] "${query}" için başka bir instance zaten üstlenmiş, atlanıyor.`);
             return;
         }
-        claimMessage = await message.reply(ID_COMMAND_CLAIM_TEXT);
+        claimMessage = await message.reply(buildIdCommandClaimText(query));
     } catch (error) {
         console.log(`[!id] Claim aşamasında hata: ${error.message}`);
         return;
@@ -1870,10 +1892,10 @@ async function handleIdCommand(message, query) {
     // göndermiş olabilir. Kısa bir süre bekleyip TEKRAR kontrol ediyoruz - bu sürede diğer
     // olası claim'ler de Discord'a işlenmiş olur. Birden fazla claim varsa DETERMİNİSTİK
     // bir kazanan seçiyoruz (en küçük Discord kullanıcı ID'si) - kaybedenler kendi claim
-    // mesajlarını silip çekiliyor.
-    await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+    // mesajlarını silip çekiliyor. Canlıdaki bug'dan sonra süre biraz uzatıldı (2-3.5sn).
+    await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1500));
     try {
-        const claimants = await findIdCommandClaimReplies(message);
+        const claimants = await findIdCommandClaimReplies(message, query);
         if (claimants.length > 1) {
             const winnerId = claimants.reduce((min, m) => (BigInt(m.author.id) < BigInt(min) ? m.author.id : min), claimants[0].author.id);
             if (winnerId !== client.user.id) {
@@ -1888,14 +1910,35 @@ async function handleIdCommand(message, query) {
     }
 
     console.log(`[!id] "${query}" sorgusu üstlenildi, aranıyor...`);
+    let resultText;
     try {
         const result = await resolvePlayerIdentity(query);
-        await claimMessage.edit(formatIdCommandResult(query, result));
+        resultText = formatIdCommandResult(query, result);
     } catch (error) {
         console.log(`[Hata] !id "${query}": ${error.message}`);
-        try {
-            await claimMessage.edit(`⚠️ "${query}" aranırken bir hata oluştu: ${error.message}`);
-        } catch (e) { /* düzenleme de başarısız olduysa yapacak bir şey yok */ }
+        resultText = `⚠️ Hata ("${query}"): ${error.message}`;
+    }
+
+    // SON GÜVENLİK KONTROLÜ: sonucu paylaşmadan HEMEN önce, sorgu sürerken (birkaç saniye
+    // içinde) başka bir instance zaten TAM SONUÇ paylaşmış mı diye bakılıyor - yukarıdaki
+    // tie-break yine de yanlış giderse bile bu SON çapraz kontrol ikinci bir sonucun
+    // yazılmasını engelliyor. Kaybedersek kendi claim mesajımızı sessizce silip çıkıyoruz.
+    try {
+        const finalCheck = await findIdCommandClaimReplies(message, query);
+        const alreadyAnswered = finalCheck.some((m) => m.id !== claimMessage.id && /^(🔎|❌|⚠️)/.test(m.content || ''));
+        if (alreadyAnswered) {
+            console.log(`[!id] "${query}" için başka bir instance bu arada zaten sonucu paylaşmış - kendi claim mesajım siliniyor, ikinci sonuç yazılmıyor.`);
+            await claimMessage.delete().catch(() => {});
+            return;
+        }
+    } catch (error) {
+        console.log(`[!id] Son güvenlik kontrolü yapılamadı (${error.message}), yine de sonuç paylaşılıyor.`);
+    }
+
+    try {
+        await claimMessage.edit(resultText);
+    } catch (error) {
+        console.log(`[Hata] !id "${query}" sonucu yazılamadı: ${error.message}`);
     }
 }
 
