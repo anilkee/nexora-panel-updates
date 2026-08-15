@@ -100,7 +100,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.17.0';
+const CURRENT_VERSION = '1.18.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -624,6 +624,7 @@ async function performTicketClaim(channelId) {
     try {
         await channel.send({ stickers: ['749054660769218631'] });
         console.log(`[Panel] ${channel.name}: claim edildi, sticker gönderildi.`);
+        reportStatEvent('claim');
     } catch (error) {
         console.log(`[Hata] ${channel.name} claim edilemedi: ${error.message}`);
     }
@@ -678,6 +679,7 @@ async function performTicketClose(channelId) {
         const menu = new MessageSelectMenu(rawMenu);
         await menu.select(menuMessage, [option.value]);
         console.log(`[Panel] ${channel.name}: "Ticket Sil" seçildi.`);
+        reportStatEvent('close');
     } catch (error) {
         console.log(`[Hata] ${channel.name} kapatılamadı: ${error.message}`);
         if (mainWindow) {
@@ -807,6 +809,7 @@ async function performTicketBanConfirm(channelId, reason) {
             await logChannel.send(`🚫 **BAN** — ${channel.name}\n📝 Sebep: ${safeReason}\n🔑 Lisans: ${license}${gameIdLine}`);
             console.log(`[Panel] ${channel.name}: ban sebebi log kanalına düşürüldü.`);
         }
+        reportStatEvent('ban');
     } catch (error) {
         console.log(`[Hata] "/fg" slash komutu gönderilemedi: ${error.message}`);
         if (mainWindow) {
@@ -1959,6 +1962,32 @@ ipcMain.on('request-chat-state', (event) => {
     win.webContents.send('chat-event', { type: 'presence', users: lastChatPresence });
 });
 
+// --- İSTATİSTİK RAPORLAMA (basit lider tablosu - "kim ne kadar aktif") ---
+// Sohbet sunucusuyla (chat-server.js) AYNI süreç/port, sadece ayrı bir HTTP ucu
+// (/stats/event) - ayrı bir sunucu AÇILMADI. Ticket claim/ban/kontrol/close başarılı
+// olduğunda buraya "fire-and-forget" bir olay bildirimi gönderiliyor; VDS'e ulaşılamasa
+// bile hata YUTULUR, gerçek ticket işlemi ASLA bu yüzden bloklanmaz/başarısız sayılmaz.
+const STATS_SERVER_URL = 'http://185.211.100.43:28418';
+const STATS_EVENT_TIMEOUT_MS = 3000;
+
+function reportStatEvent(type) {
+    if (!client.user) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), STATS_EVENT_TIMEOUT_MS);
+    fetch(`${STATS_SERVER_URL}/stats/event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Chat-Secret': CHAT_SERVER_SECRET },
+        body: JSON.stringify({
+            userId: client.user.id,
+            username: client.user.displayName || client.user.username,
+            type,
+        }),
+        signal: controller.signal,
+    }).catch((error) => {
+        console.log(`[İstatistik] Olay gönderilemedi (${type}): ${error.message}`);
+    }).finally(() => clearTimeout(timeout));
+}
+
 // --- "!id <sorgu>" KOMUTU (yetkili sohbet/bot-komut kanalları) ---
 // Bu botu kullanan birkaç arkadaşın kendi bot instance'ı da AYNI kanalları dinliyor -
 // biri "!id 256" yazınca hepsi aynı anda görüyor, hepsi cevap verirse aynı sonuç 5 kez
@@ -2770,6 +2799,7 @@ async function startKontrolScan(channel, targetUserId) {
     registerScan(code);
     channelScans.set(channel.id, code);
     if (mainWindow) mainWindow.webContents.send('ticket-scan-started', { channelId: channel.id, code });
+    reportStatEvent('kontrol');
 
     console.log(`[Kontrol] Link gönderildi: ${downloadUrl} - 1 dakika sonra sonuç beklemeye başlanacak.`);
     await new Promise(resolve => setTimeout(resolve, KONTROL_RESULT_DELAY_MS));
