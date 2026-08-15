@@ -177,7 +177,7 @@
             width: 38px; height: 38px; border-radius: calc(var(--radius-card) - 1px);
             background: transparent; border: 1px solid transparent; color: var(--text-lo);
             display: flex; align-items: center; justify-content: center; cursor: pointer;
-            transition: color .15s, background .15s, border-color .15s;
+            transition: color .15s, background .15s, border-color .15s; position: relative;
         }
         .rail-btn .icon { width: 17px; height: 17px; }
         .rail-btn:hover { color: var(--text-hi); }
@@ -206,12 +206,22 @@
             flex: 1; background: var(--bg-panel-raise); border: 1px solid var(--border-c); color: var(--text-lo);
             border-radius: calc(var(--radius-card) - 1px); padding: 7px 4px; font-size: 10.5px; font-weight: 600;
             cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
-            font-family: "Segoe UI", sans-serif; transition: color .15s, border-color .15s;
+            font-family: "Segoe UI", sans-serif; transition: color .15s, border-color .15s; position: relative;
         }
         .ld-tab .icon { width: 13px; height: 13px; }
         .ld-tab:hover { color: var(--text-hi); }
         .ld-tab.active { color: var(--accent); border-color: var(--accent-dim); background: color-mix(in srgb, var(--accent) 10%, transparent); }
         body[data-layout="list-detail"] .ld-tabs { display: flex; }
+
+        /* Sohbette section=chat DIŞINDAYKEN yeni mesaj gelirse nav butonlarında (klasik
+           dişli/sidebar ikonu/list-detail sekmesi - hepsinde AYNI .chat-nav-badge) küçük bir
+           sayaç rozeti çıkar - sekmeye girilince (setActiveSection) sıfırlanıp gizleniyor. */
+        .chat-nav-badge {
+            position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;
+            border-radius: 999px; background: var(--danger); color: #fff; font-size: 9px; font-weight: 700;
+            line-height: 16px; text-align: center; box-shadow: 0 0 0 2px var(--bg-panel);
+        }
+        .ld-tab .chat-nav-badge { top: -6px; right: -6px; }
 
         /* Bölüm görünürlüğü: klasikte tickets/lookup/status HER ZAMAN birlikte (mevcut
            "ana görünüm" davranışı), settings VE chat ayrı tam ekran. Sidebar/list-detail'de
@@ -282,7 +292,7 @@
             background: transparent; border: 1px solid var(--border-c); color: var(--text-lo);
             border-radius: calc(var(--radius-card) - 1px); width: 32px; height: 32px;
             display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
-            transition: color .15s, border-color .15s;
+            transition: color .15s, border-color .15s; position: relative;
         }
         .icon-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
         .icon-btn .icon { width: 16px; height: 16px; }
@@ -518,7 +528,7 @@
             <button class="rail-btn nav-target" data-section="tickets" type="button" aria-label="Ticketlar"><svg class="icon"><use href="#icon-ticket"></use></svg></button>
             <button class="rail-btn nav-target" data-section="lookup" type="button" aria-label="Kimlik Sorgula"><svg class="icon"><use href="#icon-search"></use></svg></button>
             <button class="rail-btn nav-target" data-section="status" type="button" aria-label="Durum"><svg class="icon"><use href="#icon-status"></use></svg></button>
-            <button class="rail-btn nav-target" data-section="chat" type="button" aria-label="Sohbet"><svg class="icon"><use href="#icon-chat"></use></svg></button>
+            <button class="rail-btn nav-target" data-section="chat" type="button" aria-label="Sohbet"><svg class="icon"><use href="#icon-chat"></use></svg><span class="chat-nav-badge" style="display: none;"></span></button>
             <button class="rail-btn nav-target" data-section="settings" type="button" aria-label="Ayarlar"><svg class="icon"><use href="#icon-settings"></use></svg></button>
         </nav>
 
@@ -533,7 +543,7 @@
                 <button class="ld-tab nav-target" data-section="tickets" type="button"><svg class="icon"><use href="#icon-ticket"></use></svg>Ticket</button>
                 <button class="ld-tab nav-target" data-section="lookup" type="button"><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</button>
                 <button class="ld-tab nav-target" data-section="status" type="button"><svg class="icon"><use href="#icon-status"></use></svg>Durum</button>
-                <button class="ld-tab nav-target" data-section="chat" type="button"><svg class="icon"><use href="#icon-chat"></use></svg>Sohbet</button>
+                <button class="ld-tab nav-target" data-section="chat" type="button"><svg class="icon"><use href="#icon-chat"></use></svg>Sohbet<span class="chat-nav-badge" style="display: none;"></span></button>
                 <button class="ld-tab nav-target" data-section="settings" type="button"><svg class="icon"><use href="#icon-settings"></use></svg>Ayarlar</button>
             </div>
 
@@ -547,6 +557,7 @@
                 </div>
                 <button class="icon-btn nav-target" id="chatBtn" data-section="chat" type="button" aria-label="Sohbet">
                     <svg class="icon"><use href="#icon-chat"></use></svg>
+                    <span class="chat-nav-badge" style="display: none;"></span>
                 </button>
                 <button class="icon-btn nav-target" id="settingsBtn" data-section="settings" type="button" aria-label="Ayarlar">
                     <svg class="icon"><use href="#icon-settings"></use></svg>
