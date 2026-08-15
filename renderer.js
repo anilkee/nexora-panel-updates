@@ -721,7 +721,7 @@ ipcRenderer.send('request-app-version');
 // inline style CSS kurallarının önüne geçip layout değiştirince "takılı kalmış" görünürlük
 // bug'ına yol açardı. Aynı fonksiyon; klasikteki dişli/geri, yan paneldeki ikonlar ve
 // liste+detay'daki sekmelerin HEPSİ tarafından kullanılıyor (hepsi ".nav-target").
-const SECTION_NAMES = ['tickets', 'lookup', 'status', 'settings'];
+const SECTION_NAMES = ['tickets', 'lookup', 'status', 'chat', 'settings'];
 
 function setActiveSection(name) {
     if (!SECTION_NAMES.includes(name)) name = 'tickets';
@@ -730,6 +730,9 @@ function setActiveSection(name) {
         el.classList.toggle('active', el.dataset.section === name);
     });
     if (name === 'settings') ipcRenderer.send('request-debug-log');
+    // Sohbet sekmesine her girişte en alta kaydır - kullanıcı sekmeyi açtığında en son
+    // mesajları görsün, geçmişin başında kalmasın.
+    if (name === 'chat') scrollChatToBottom();
 }
 
 document.querySelectorAll('.nav-target').forEach((el) => {
@@ -737,6 +740,117 @@ document.querySelectorAll('.nav-target').forEach((el) => {
 });
 
 setActiveSection('tickets');
+
+// --- SOHBET (botu kullanan herkesin birbiriyle konuştuğu, Discord'dan BAĞIMSIZ sistem) ---
+// main.js'teki chatSocket (VDS'e WebSocket) üzerinden gelen olayları ('chat-event' IPC) çiziyor,
+// yazılan mesajı 'chat-send' ile main.js'e gönderiyor. Kimlik (avatar+isim) main.js tarafında
+// zaten giriş yapılmış Discord hesabından ekleniyor - burada elle bir şey yapmaya gerek yok.
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
+const chatOnlineHint = document.getElementById('chatOnlineHint');
+
+function scrollChatToBottom() {
+    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function formatChatTime(ts) {
+    try {
+        return new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+        return '';
+    }
+}
+
+function appendChatMessage(msg) {
+    if (!chatMessages) return;
+    const emptyEl = chatMessages.querySelector('#chatEmpty');
+    if (emptyEl) emptyEl.remove();
+
+    const row = document.createElement('div');
+    row.className = 'chat-message';
+
+    const avatar = document.createElement('img');
+    avatar.className = 'chat-avatar';
+    avatar.src = msg.avatarUrl || '';
+    avatar.alt = '';
+    avatar.addEventListener('error', () => { avatar.style.visibility = 'hidden'; });
+
+    const body = document.createElement('div');
+    body.className = 'chat-message-body';
+
+    const head = document.createElement('div');
+    head.className = 'chat-message-head';
+    const author = document.createElement('span');
+    author.className = 'chat-message-author';
+    author.textContent = msg.username || 'Bilinmeyen';
+    const time = document.createElement('span');
+    time.className = 'chat-message-time';
+    time.textContent = formatChatTime(msg.timestamp);
+    head.appendChild(author);
+    head.appendChild(time);
+
+    const text = document.createElement('div');
+    text.className = 'chat-message-text';
+    text.textContent = msg.text || '';
+
+    body.appendChild(head);
+    body.appendChild(text);
+    row.appendChild(avatar);
+    row.appendChild(body);
+    chatMessages.appendChild(row);
+}
+
+function renderChatHistory(messages) {
+    if (!chatMessages) return;
+    chatMessages.innerHTML = '';
+    if (!messages || messages.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'chat-empty';
+        empty.id = 'chatEmpty';
+        empty.textContent = 'Henüz mesaj yok.';
+        chatMessages.appendChild(empty);
+    } else {
+        messages.forEach(appendChatMessage);
+    }
+    if (document.body.dataset.section === 'chat') scrollChatToBottom();
+}
+
+function renderChatPresence(users) {
+    if (!chatOnlineHint) return;
+    const count = users ? users.length : 0;
+    chatOnlineHint.textContent = count > 0 ? `${count} kişi bağlı` : '';
+}
+
+ipcRenderer.on('chat-event', (event, msg) => {
+    if (!msg) return;
+    if (msg.type === 'history') {
+        renderChatHistory(msg.messages);
+    } else if (msg.type === 'presence') {
+        renderChatPresence(msg.users);
+    } else if (msg.type === 'message') {
+        appendChatMessage(msg);
+        if (document.body.dataset.section === 'chat') scrollChatToBottom();
+    }
+});
+
+function sendChatMessage() {
+    if (!chatInput) return;
+    const text = chatInput.value.trim();
+    if (!text) return;
+    ipcRenderer.send('chat-send', text);
+    chatInput.value = '';
+}
+
+chatSendBtn?.addEventListener('click', sendChatMessage);
+chatInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+});
+
+// main.js WebSocket bağlantısı Discord girişinden hemen sonra kuruluyor - panel açılışında
+// (kullanıcı sohbet sekmesine hiç girmese bile) mevcut geçmiş/online listesini isteyip
+// önbelleğe alalım ki sekmeye ilk girildiğinde boş görünmesin.
+ipcRenderer.send('request-chat-state');
 
 // --- HESAP & SUNUCU AYARLARI ---
 const ACCOUNT_FIELDS = ['USER_TOKEN', 'NEXORA_API_KEY', 'LOG_CHANNEL_ID', 'CATEGORY_ID', 'ANTICHEAT_ROLE_ID', 'IGNORED_IDS'];
