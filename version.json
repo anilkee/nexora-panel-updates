@@ -1,4 +1,4 @@
 {
-  "version": "1.17.0",
-  "changelog": "- YENİ: Botu kullanan herkesin birbiriyle konuşabildiği bir Sohbet sekmesi eklendi (Discord'dan bağımsız, kendi VDS'inde çalışıyor) - klasik/yan panel/liste+detay yerleşimlerinin hepsinde erişilebilir\n- Sohbette mesaj yazan kişiler kendi Discord profil fotoğrafı ve ismiyle görünüyor\n- VDS'de ayrıca kimlerin bota şu an bağlı olduğunu gösteren ayrı bir web sayfası da açıldı"
+  "version": "1.18.0",
+  "changelog": "- Sohbette okunmamis mesaj rozeti eklendi (klasik/yan panel/liste+detay)\n- Kim ne kadar aktif: haftalik/toplam islem lider tablosu (VDS panelinde gorunuyor)\n- Sohbet gecmisi artik VDS'de diske kaydediliyor, sunucu yeniden baslasa bile kaybolmuyor"
 }
