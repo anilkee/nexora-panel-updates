@@ -100,7 +100,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.18.0';
+const CURRENT_VERSION = '1.19.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -1879,6 +1879,16 @@ async function claimViaServer(key) {
 const CHAT_SERVER_URL = 'ws://185.211.100.43:28418';
 const CHAT_SERVER_SECRET = '2b3a9e6dec63450c4c13dbf10bad0fc283f1a2e578baeef5';
 const CHAT_RECONNECT_DELAY_MS = 5000;
+// Bağlantı normal kapanırsa ('close' event) zaten hemen yeniden deneniyor - ama TCP bağlantısı
+// bazen (ör. laptop uyku modundan çıkışı, ağ kesintisi) hiçbir 'close'/'error' ateşlemeden
+// "zombi" kalabiliyor - karşı taraf gerçekten dinlemiyor ama yerel soket hâlâ OPEN görünüyor.
+// Bunu yakalamak için standart ws deseni: periyodik ping gönder, pong gelmezse bağlantıyı
+// zorla kapat (bu 'close' event'ini tetikleyip normal yeniden bağlanma akışına düşürür).
+const CHAT_HEARTBEAT_INTERVAL_MS = 10000;
+// EK güvenlik ağı: yukarıdaki mekanizmaların HİÇBİRİ (her ne sebeple olursa olsun) tetiklenmeden
+// bağlantı kopuk kalırsa, bu periyodik kontrol "bağlı değilsem tekrar dene"yi garantiliyor. Kullanıcı
+// "5 saniyede bir VDS'e bağlı mıyım diye kontrol etsin" dedi - 5000ms'ye çekildi (öncesi 30000ms).
+const CHAT_WATCHDOG_INTERVAL_MS = 5000;
 
 let chatSocket = null;
 let chatReconnectTimer = null;
@@ -1902,6 +1912,22 @@ function connectChatSocket() {
     }
     chatSocket = socket;
 
+    // Ping/pong nabzı - bkz. CHAT_HEARTBEAT_INTERVAL_MS yorumu. 'close' event'inden BAĞIMSIZ,
+    // bu soket için ayrı bir interval - başka bir bağlantıya ait pong'la karışmasın diye
+    // her yeni socket kendi heartbeat'ini kuruyor ve kendi close'unda temizliyor.
+    let awaitingPong = false;
+    const heartbeat = setInterval(() => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        if (awaitingPong) {
+            console.log('[Sohbet] Sunucudan pong gelmedi (zombi bağlantı), zorla kapatılıp yeniden denenecek.');
+            socket.terminate(); // 'close' event'ini tetikler, yeniden bağlanma oradan devam eder
+            return;
+        }
+        awaitingPong = true;
+        socket.ping();
+    }, CHAT_HEARTBEAT_INTERVAL_MS);
+    socket.on('pong', () => { awaitingPong = false; });
+
     socket.on('open', () => {
         console.log('[Sohbet] VDS sohbet sunucusuna bağlandı.');
         socket.send(JSON.stringify({
@@ -1909,7 +1935,7 @@ function connectChatSocket() {
             secret: CHAT_SERVER_SECRET,
             userId: client.user.id,
             username: client.user.displayName || client.user.username,
-            avatarUrl: client.user.displayAvatarURL({ size: 128 }),
+            avatarUrl: client.user.displayAvatarURL({ size: 128, format: 'png' }),
         }));
     });
 
@@ -1930,6 +1956,7 @@ function connectChatSocket() {
 
     socket.on('close', () => {
         console.log('[Sohbet] Bağlantı koptu, birkaç saniye sonra yeniden denenecek.');
+        clearInterval(heartbeat);
         if (chatSocket === socket) chatSocket = null;
         scheduleChatReconnect();
     });
@@ -1938,6 +1965,17 @@ function connectChatSocket() {
         console.log(`[Sohbet] Bağlantı hatası: ${error.message}`);
     });
 }
+
+// Güvenlik ağı: 'close' event'i her ne sebeple olursa olsun hiç tetiklenmeden bağlantı
+// kopuk/kurulmamış kalırsa (ör. ilk bağlantı denemesi sırasında beklenmedik bir durum),
+// bu periyodik kontrol "bağlı değilsem tekrar dene"yi garanti ediyor. connectChatSocket zaten
+// zaten OPEN/CONNECTING durumundaysa hiçbir şey yapmıyor, o yüzden zararsız/idempotent.
+setInterval(() => {
+    if (!client.user) return;
+    if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
+    console.log('[Sohbet] Watchdog: bağlı değil, yeniden bağlanma deneniyor.');
+    connectChatSocket();
+}, CHAT_WATCHDOG_INTERVAL_MS);
 
 function scheduleChatReconnect() {
     if (chatReconnectTimer) return;
@@ -1980,6 +2018,7 @@ function reportStatEvent(type) {
         body: JSON.stringify({
             userId: client.user.id,
             username: client.user.displayName || client.user.username,
+            avatarUrl: client.user.displayAvatarURL({ size: 128, format: 'png' }),
             type,
         }),
         signal: controller.signal,
