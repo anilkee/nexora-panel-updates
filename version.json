@@ -1,4 +1,4 @@
 {
-  "version": "1.18.0",
-  "changelog": "- Sohbette okunmamis mesaj rozeti eklendi (klasik/yan panel/liste+detay)\n- Kim ne kadar aktif: haftalik/toplam islem lider tablosu (VDS panelinde gorunuyor)\n- Sohbet gecmisi artik VDS'de diske kaydediliyor, sunucu yeniden baslasa bile kaybolmuyor"
+  "version": "1.19.0",
+  "changelog": "- Sohbet baglantisi artik cok daha saglam: 10sn'de bir nabiz kontrolu + 5sn'de bir 'baglimiyim' kontrolu, kopan baglanti hemen kendini toparliyor\n- Profil fotograflari duzeltildi (VDS panelinin okuyamadigi .webp yerine artik PNG gonderiliyor)\n- VDS panelindeki istatistikler artik avatar da tasiyor"
 }
