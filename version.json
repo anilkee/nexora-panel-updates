@@ -1,4 +1,4 @@
 {
-  "version": "1.20.0",
-  "changelog": "- !id sorgulari artik cok daha az 'sonuc bulunamadi' donuyor (VDS'in bekleme suresi kisa kalmisti, duzeltildi)\n- Sohbette bagli olan kisiler artik fotograf ve isimleriyle gorunuyor\n- VDS servisleri coktugunde panele Windows bildirimi geliyor\n- Ic yapida buyuk temizlik: ortak kod tek dosyaya alindi, olu kod kaldirildi"
+  "version": "1.21.0",
+  "changelog": "- Kontrole cagirinca oyundan cikan kisi artik otomatik loglaniyor: kanit linkleriyle birlikte kontrol-log a dusuyor ve license ile otomatik fg offline-ban atiliyor\n- Yeni 'Kontrol Red' butonu: ekran goruntusunu panele Ctrl+V ile yapistir, kayit ve resim tek seferde kontrol-log a gidiyor\n- Kontrol-log kayitlari yeniden tasarlandi (okunakli duzen, tiklanabilir kisi etiketi, kopyalanabilir ID, otomatik saat)\n- VDS panelinde artik kimin hangi surumde oldugu gorunuyor"
 }
