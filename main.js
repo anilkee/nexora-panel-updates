@@ -80,13 +80,10 @@ app.on('second-instance', () => {
 });
 
 const { Client, MessageSelectMenu } = require('discord.js-selfbot-v13');
-// channel.sendSlash()'ın kendi içinde yaptığı client.users.fetch(botId) çağrısı bazı
-// oturum/ortamlarda "Unauthorized" ile başarısız olabiliyor (canlı test edildi - bkz.
-// queryPlayerInfoCommandImpl yorumu) - bu iki sınıf, o adımı ATLAYIP komut şemasından
-// (application-command-index API, bu ASLA başarısız olmadı) ApplicationCommand'i elle inşa
-// edip slash komutunu doğrudan göndermek için kullanılıyor.
-const DiscordApplicationCommand = require('discord.js-selfbot-v13/src/structures/ApplicationCommand');
-const { Message: DiscordMessage } = require('discord.js-selfbot-v13/src/structures/Message');
+// NOT: "/player-info" sorgulama mantığı (ve onun için gereken derin discord.js-selfbot-v13
+// require'ları) artık ORTAK MODÜLDE: player-info.js. VDS'deki id-responder.js de AYNI dosyayı
+// kullanıyor - eskiden iki ayrı elle-kopyalanmış sürüm vardı ve sessizce sapıp canlıda soruna
+// yol açmıştı. Modül burada TOP-LEVEL require EDİLMİYOR (bkz. ensureAppFiles / getPlayerInfo).
 const { exec } = require('child_process');
 const http = require('http');
 const os = require('os');
@@ -100,11 +97,19 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.19.0';
+const CURRENT_VERSION = '1.20.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
-const UPDATE_FILES = ['main.js', 'index.html', 'renderer.js', 'mobile.html', 'setup.html'];
+// DİKKAT - YENİ DOSYA EKLERKEN İKİ AŞAMALI YAYIN ŞART: Bu liste güncelleyicinin İNDİRECEĞİ
+// dosyaları belirliyor ve her istemci KENDİ SÜRÜMÜNDEKİ listeyi kullanıyor. Yani listeye yeni
+// bir dosya eklenip AYNI sürümde main.js o dosyayı require ederse, ESKİ sürümdeki bir istemci
+// güncellenirken yeni main.js'i indirir ama yeni dosyayı İNDİRMEZ ve açılışta MODULE_NOT_FOUND
+// ile çöker (herkesin uygulaması bozulur). Doğru sıra:
+//   1. AŞAMA: dosyayı bu listeye ekle + repoya yükle, ama main.js'te HENÜZ require ETME.
+//   2. AŞAMA: herkes 1. aşamayı aldıktan sonra (15 dk içinde otomatik) require'ı ekle.
+// "player-info.js" şu an 1. AŞAMADA - liste biliyor, main.js henüz require etmiyor.
+const UPDATE_FILES = ['main.js', 'index.html', 'renderer.js', 'mobile.html', 'setup.html', 'player-info.js'];
 const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000; // periyodik kontrol - 15 dakikada bir
 
 async function fetchUpdateRepoFile(filePath) {
@@ -120,6 +125,38 @@ async function fetchUpdateRepoFile(filePath) {
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.text();
+}
+
+// --- EKSİK DOSYA GÜVENLİK AĞI (yeni dosya eklerken çökmeyi önler) ---
+// Güncelleyicinin indireceği dosya listesi (UPDATE_FILES) her istemcide KENDİ sürümünden
+// okunuyor. Yani listeye yeni bir dosya eklendiğinde, HENÜZ ESKİ sürümdeki bir istemci
+// güncellenirken yeni main.js'i indirir ama yeni dosyayı İNDİRMEZ - o dosya require edilseydi
+// uygulama açılışta MODULE_NOT_FOUND ile çökerdi. Bunu imkânsız kılmak için:
+//   * player-info.js TOP-LEVEL require EDİLMİYOR (aşağıdaki getPlayerInfo ile tembel yükleniyor),
+//   * ve açılışta eksik olan HER dosya repodan indiriliyor (aşağıdaki fonksiyon).
+// Böylece hangi sürümden gelinirse gelinsin uygulama kendini onarıyor, sürüm beklemeye gerek yok.
+async function ensureAppFiles() {
+    for (const file of UPDATE_FILES) {
+        const target = path.join(__dirname, file);
+        if (fs.existsSync(target)) continue;
+        console.log(`[Güncelleme] Eksik dosya tespit edildi: ${file} - indiriliyor...`);
+        try {
+            const content = await fetchUpdateRepoFile(file);
+            fs.writeFileSync(target, content);
+            console.log(`[Güncelleme] ${file} indirildi.`);
+        } catch (error) {
+            console.log(`[Güncelleme] ${file} indirilemedi: ${error.message}`);
+        }
+    }
+}
+
+// Ortak modül TEMBEL yükleniyor - ensureAppFiles() çalıştıktan sonraki ilk kullanımda.
+let playerInfoApi = null;
+function getPlayerInfo() {
+    if (!playerInfoApi) {
+        playerInfoApi = require('./player-info.js').createPlayerInfo(client);
+    }
+    return playerInfoApi;
 }
 
 async function checkForUpdates() {
@@ -548,7 +585,7 @@ ipcMain.on('request-open-at-login-status', (event) => {
 });
 
 ipcMain.on('lookup-player', async (event, query) => {
-    const result = await resolvePlayerIdentity(query);
+    const result = await getPlayerInfo().resolvePlayerIdentity(query);
     if (mainWindow) mainWindow.webContents.send('lookup-player-result', { query, result });
 });
 
@@ -1242,7 +1279,7 @@ const mobileServer = http.createServer(async (req, res) => {
     if (req.method === 'GET' && reqUrl.pathname === '/api/lookup') {
         if (!hasValidToken(reqUrl)) return sendJson(res, 401, { error: 'Geçersiz erişim kodu' });
         try {
-            const result = await resolvePlayerIdentity(reqUrl.searchParams.get('query') || '');
+            const result = await getPlayerInfo().resolvePlayerIdentity(reqUrl.searchParams.get('query') || '');
             return sendJson(res, 200, { result });
         } catch (error) {
             return sendJson(res, 500, { error: error.message });
@@ -1474,6 +1511,7 @@ ipcMain.on('save-setup', (event, values) => {
 
 app.on('ready', async () => {
     await checkForUpdates(); // güncelleme varsa burada indirip yeniden başlatır, devam etmez
+    await ensureAppFiles();  // eski bir sürümden gelindiyse eksik kalan dosyaları tamamlar
 
     // Uygulama günlerce kapatılmadan açık kalabildiği için (herkes artık VDS'e bağlı, elle
     // yeniden başlatmaya gerek kalmıyor) SADECE açılışta değil, periyodik olarak da tekrar
@@ -1533,151 +1571,7 @@ function extractSuspiciousIdentifier(embed) {
         findEmbedField(embed, /^name$/i)
     );
 }
-
-// --- KİMLİK SORGULA: /player-info slash komutu (FG botu) ---
-// Eskiden kill-log + connections-webhook kanallarını dakikalarca (60sn'ye kadar)
-// sayfalayarak tarayan bir zincir vardı. Kullanıcı "license ile kimlik kontrolünü
-// kaldır, sadece DC ID ve Player ID ile kontrol edelim, eski kontrol biçimini
-// tamamen kaldır" dedi - FG botunun (Fiveguard, FG_BOT_ID) `/player-info` komutu
-// (options: [0] user=Discord kullanıcı, [1] gameid=oyun içi ID, ikisi de opsiyonel
-// ama YALNIZCA biri veriliyor) TEK bir anlık sorguda license/Steam adı/Steam
-// ID/Discord/Oyun İçi ID/"Oyunda mı?"/"FG Banlı mı?" hepsini birden, DOĞRUDAN
-// FG botundan (log taraması değil, canlı/otoriter cevap) veriyor - hem çok daha
-// hızlı hem "FG Banlı mı?" artık GERÇEK/güncel bir cevap (eskiden webhook-system
-// ban tespiti kaldırılmıştı çünkü unbans'ı hiç kontrol etmeyip eski/geçersiz
-// banları "hâlâ banlı" gösteriyordu - bu sorun burada YOK, FG botu kendi güncel
-// veritabanına bakıyor). Şema `_test_playerinfo.js` (geçici, silindi) ile canlı
-// doğrulandı - application_id BOT_ID (FG_BOT_ID) ile birebir eşleşiyor.
-// NOT: ID_COMMAND_CHANNEL_IDS[0] ile AYNI değer (ac-komut) ama o sabit bu dosyada
-// DAHA SONRA tanımlanıyor - modül yüklenirken en üstten çalışan bir "const" olduğu
-// için ona referans vermek yerine (TDZ hatası) burada doğrudan literal kullanılıyor.
-const PLAYER_INFO_COMMAND_CHANNEL_ID = '1475520758095544490'; // ac-komut - kullanıcı bu kanalı belirtti
-const PLAYER_INFO_TIMEOUT_MS = 15000; // ilk boş mesaj + embed'li edit'i beklemek için biraz pay bırakıldı
 const CONNECTIONS_WEBHOOK_CHANNEL_ID = '1513234125337919610';
-
-// /player-info embed'inin alan adları küçük bir "↷" dekorasyon karakteriyle geliyor
-// (bkz. canlı ekran görüntüleri) - o yüzden TAM eşleşme yerine BAŞLANGIÇ eşleşmesi
-// kullanılıyor (parsePlayerInfoFromBotMessage'daki aynı derste öğrenilen yaklaşım).
-function parsePlayerInfoEmbed(embed) {
-    if (!embed?.fields?.length) return null;
-    const fields = embed.fields;
-    const clean = (v) => String(v || '').replace(/[`*_~]/g, '').trim();
-    const find = (test) => fields.find((f) => test(String(f.name || '').trim()));
-
-    const licenseField = find((n) => /^lisans/i.test(n));
-    const steamIdField = find((n) => /^steam/i.test(n) && /id/i.test(n));
-    const steamNameField = find((n) => /^steam/i.test(n) && !/id/i.test(n));
-    const discordField = find((n) => /^discord/i.test(n) && !/kullan/i.test(n));
-    const gameIdField = find((n) => /^oyun\s/i.test(n)); // "Oyunda mı?"dan ayırmak için boşluk şart
-    const onlineField = find((n) => /^oyunda/i.test(n));
-    const bannedField = find((n) => /^fg\s*banl/i.test(n));
-
-    const gameIdRaw = gameIdField ? clean(gameIdField.value) : null;
-    const isEvet = (f) => (f ? /evet/i.test(clean(f.value)) : null);
-
-    return {
-        license: licenseField ? clean(licenseField.value) : null,
-        steamId: steamIdField ? clean(steamIdField.value) : null,
-        steamName: steamNameField ? clean(steamNameField.value) : null,
-        discord: discordField ? clean(discordField.value).replace(/^discord:/i, '') : null,
-        gameId: /^\d+$/.test(gameIdRaw || '') ? gameIdRaw : null,
-        online: isEvet(onlineField),
-        banned: isEvet(bannedField),
-    };
-}
-
-// Aynı anda birden fazla /player-info isteği (Kimlik Sorgula + !id komutu + Liste+Detay
-// ticket paneli aynı anda tetiklenebilir) YARIŞ DURUMUNA yol açmasın diye TEK BİR
-// kuyruktan sırayla işleniyor - "gönder, o botun kanaldaki BİR SONRAKİ mesajını bekle"
-// deseni ancak aynı anda tek istek varsa güvenilir olur.
-let playerInfoQueue = Promise.resolve();
-function queryPlayerInfoCommand(params) {
-    const run = () => queryPlayerInfoCommandImpl(params);
-    const chained = playerInfoQueue.then(run, run);
-    playerInfoQueue = chained.catch(() => {}); // bir istek hata verse bile kuyruk tıkanmasın
-    return chained;
-}
-
-// channel.sendSlash()'ı DOĞRUDAN kullanmıyoruz - kendi içinde çağırdığı
-// client.users.fetch(botId) canlı testte "Unauthorized" ile başarısız oldu (kök sebep
-// belirsiz, muhtemelen oturuma özel bir kısıtlama - ama application-command-index API'si
-// AYNI botun komutları için hiç başarısız olmadı). Bu yüzden ApplicationCommand'i şema
-// verisinden ELLE inşa edip users.fetch()'e hiç gerek kalmadan komutu gönderiyoruz.
-async function sendPlayerInfoSlashCommand(channel, discordId, gameId) {
-    const API = channel.guild
-        ? client.api.guilds[channel.guild.id]['application-command-index']
-        : client.api.channels[channel.id]['application-command-index'];
-    const data = await API.get();
-    const cmdData = data.application_commands.find((c) => c.name === 'player-info' && c.application_id === FG_BOT_ID);
-    if (!cmdData) throw new Error('player-info komutu şemada bulunamadı (bot izin verilmemiş/komut kaldırılmış olabilir).');
-
-    const command = new DiscordApplicationCommand(client, cmdData);
-    const fakeMessage = new DiscordMessage(client, {
-        channel_id: channel.id,
-        guild_id: channel.guild?.id || null,
-        author: client.user,
-        content: '',
-        id: client.user.id,
-    });
-    // options sırası ÖNEMLİ (komut şemasındaki sırayla POZİSYONEL dolduruluyor):
-    // [0] user (Discord ID/mention), [1] gameid - kullanılmayan undefined bırakılıyor.
-    return command.sendSlashCommand(fakeMessage, [], [discordId || undefined, gameId || undefined]);
-}
-
-async function queryPlayerInfoCommandImpl({ discordId, gameId } = {}) {
-    const channel = client.channels.cache.get(PLAYER_INFO_COMMAND_CHANNEL_ID);
-    if (!channel) {
-        console.log('[Oyuncu Bilgi] player-info kanalı bulunamadı.');
-        return null;
-    }
-
-    // ÖNEMLİ: FG botu /player-info'yu ÖNCE embed'i BOŞ bir mesajla (muhtemelen "defer" -
-    // arka planda işlenirken) gönderip birkaç saniye sonra AYNI mesajı embed'le EDİT
-    // ediyor (canlı testte kesin doğrulandı - ilk messageCreate'te embeds.length: 0,
-    // asıl içerik sonradan geliyor). Sadece messageCreate dinleyip "embeds boşsa atla"
-    // dersek asıl yanıtı SONSUZA DEK kaçırırız (bu YÜZDEN "şu an çalışmıyor" oluyordu) -
-    // bu yüzden hem messageCreate HEM messageUpdate dinlenip HANGİSİ önce embed doldurursa
-    // ona göre karar veriliyor.
-    const waitForReply = new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-            client.removeListener('messageCreate', onCreate);
-            client.removeListener('messageUpdate', onUpdate);
-            resolve(null);
-        }, PLAYER_INFO_TIMEOUT_MS);
-        function tryResolve(message) {
-            if (message.channelId !== PLAYER_INFO_COMMAND_CHANNEL_ID) return;
-            if (message.author?.id !== FG_BOT_ID) return;
-            if (!message.embeds?.length) return; // henüz boş kabuk - bekle, messageUpdate'i gözle
-            if (message.interaction && message.interaction.commandName && message.interaction.commandName !== 'player-info') return;
-            clearTimeout(timeout);
-            client.removeListener('messageCreate', onCreate);
-            client.removeListener('messageUpdate', onUpdate);
-            resolve(message);
-        }
-        function onCreate(message) {
-            tryResolve(message);
-        }
-        function onUpdate(oldMessage, newMessage) {
-            tryResolve(newMessage);
-        }
-        client.on('messageCreate', onCreate);
-        client.on('messageUpdate', onUpdate);
-    });
-
-    try {
-        await sendPlayerInfoSlashCommand(channel, discordId, gameId);
-    } catch (error) {
-        console.log(`[Oyuncu Bilgi] /player-info gönderilemedi: ${error.message}`);
-        return null;
-    }
-
-    const message = await waitForReply;
-    if (!message) {
-        console.log('[Oyuncu Bilgi] /player-info yanıtı zaman aşımına uğradı.');
-        return null;
-    }
-    return parsePlayerInfoEmbed(message.embeds[0]);
-}
 
 // connections-webhook embed'i field değil, tek bir metin bloğu (description) -
 // "Server ID: N", "Identifiers" listesinde steam/license/discord/ip JSON benzeri
@@ -1764,7 +1658,7 @@ async function buildTicketDetail(channelId) {
 
     let info = null;
     if (discordId || gameId) {
-        info = await queryPlayerInfoCommand({ discordId, gameId: discordId ? null : gameId });
+        info = await getPlayerInfo().queryPlayerInfoCommand({ discordId, gameId: discordId ? null : gameId });
     }
 
     return {
@@ -1789,85 +1683,6 @@ ipcMain.on('request-ticket-detail', async (event, channelId) => {
         win.webContents.send('ticket-detail', { channelId, detail: null });
     }
 });
-
-// Sorgu metninden tür tahmini - kullanıcı isteğiyle ARTIK SADECE Discord ID ve Player
-// (oyun içi) ID destekleniyor (license/isim ile arama TAMAMEN kaldırıldı, /player-info
-// komutunun kendisi de zaten sadece bu ikisini kabul ediyor).
-function detectLookupQueryType(q) {
-    if (!/^\d+$/.test(q)) return null;
-    return q.length >= 15 ? 'discordId' : 'playerId';
-}
-
-// /player-info slash komutuyla Discord ID ya da Player ID üzerinden TEK bir canlı
-// sorguda kimlik bilgisi getirir - eski kill-log/connections-webhook tarama zinciri
-// tamamen kaldırıldı (bkz. yukarıdaki PLAYER_INFO_COMMAND_CHANNEL_ID notu).
-async function resolvePlayerIdentity(query) {
-    const q = String(query || '').trim();
-    if (!q) return null;
-
-    const type = detectLookupQueryType(q);
-    if (!type) {
-        console.log(`[Kimlik Sorgula] "${q}" geçersiz sorgu - sadece Discord ID veya Oyun İçi (Player) ID destekleniyor.`);
-        return null;
-    }
-
-    console.log(`[Kimlik Sorgula] ${type === 'discordId' ? 'Discord ID' : 'Player ID'} ${q} için /player-info sorgulanıyor...`);
-    const info = await queryPlayerInfoCommand(type === 'discordId' ? { discordId: q } : { gameId: q });
-    if (!info) {
-        console.log(`[Kimlik Sorgula] "${q}" için /player-info sonuç vermedi.`);
-        return null;
-    }
-
-    return {
-        playerId: info.gameId,
-        name: info.steamName,
-        steam: info.steamId,
-        discord: info.discord || (type === 'discordId' ? q : null),
-        license: info.license,
-        online: info.online,
-        banned: info.banned,
-        lastSeenAt: new Date().toISOString(),
-    };
-}
-
-// --- MERKEZİ CLAIM SUNUCUSU (VDS) ---
-// Canlıda "3 arkadaşın instance'ı da AYNI '!id' sorgusuna aynı anda tam sonuç yazdı" bug'ı
-// bulundu - Discord mesajlarının GÖRÜNÜRLÜĞÜNE dayalı dedup (aşağıdaki findIdCommandClaimReplies)
-// farklı hesapların birbirinin mesajını her zaman güvenilir görememesi yüzünden yetersiz kaldı.
-// Kullanıcının kendi VDS'inde (185.211.100.43, Windows Server, "NexoraClaimServer" adında
-// zamanlanmış görev olarak sürekli çalışıyor - `claim-server.js`, node.js) TEK bir merkezi
-// HTTP sunucu kuruldu: her instance bir "!id" sorgusu gördüğünde ÖNCE buraya "/claim" ile
-// sorar, sunucu atomik "ilk gelen kazanır" cevabı verir - Discord'un mesaj görünürlüğüne HİÇ
-// bağımlı değil, KESİN/tek doğru kaynak. Sunucuya ulaşılamazsa (VDS kapalı/ağ sorunu) SESSİZCE
-// eski Discord-mesaj-tabanlı yönteme düşülüyor (defense-in-depth - tek noktaya bağımlı kalmasın
-// diye eski yöntem TAMAMEN kaldırılmadı, sadece ikincil hale getirildi).
-const CLAIM_SERVER_URL = 'http://185.211.100.43:28417';
-const CLAIM_SERVER_SECRET = 'b3e065981d624d52528a60a274daebba946007673aa33999';
-const CLAIM_SERVER_TIMEOUT_MS = 4000;
-
-async function claimViaServer(key) {
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), CLAIM_SERVER_TIMEOUT_MS);
-        let res;
-        try {
-            res = await fetch(`${CLAIM_SERVER_URL}/claim`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Claim-Secret': CLAIM_SERVER_SECRET },
-                body: JSON.stringify({ key, botId: client.user.id }),
-                signal: controller.signal,
-            });
-        } finally {
-            clearTimeout(timeout);
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        return { winner: !!data.winner, winnerBotId: data.winnerBotId };
-    } catch (error) {
-        console.log(`[Claim Sunucusu] Ulaşılamadı (${error.message}) - eski Discord-mesaj tabanlı yönteme düşülüyor.`);
-        return null; // null = sunucu başarısız/ulaşılamadı, çağıran taraf eski yönteme düşmeli
-    }
-}
 
 // --- SOHBET (botu kullanan herkesin birbiriyle konuştuğu, Discord'dan BAĞIMSIZ sistem) ---
 // Kullanıcı "yeni bir sekme, botu kullanan herkesin birbiriyle konuşabileceği bir sistem, VDS
@@ -1951,6 +1766,21 @@ function connectChatSocket() {
         if (msg.type === 'message') {
             lastChatHistory = [...lastChatHistory, msg].slice(-200);
         }
+        // VDS "kendi kendini izleme" uyarısı (bkz. chat-server.js'teki karşılıklı izleme notu):
+        // VDS'in Discord tarafı (id-responder) çökerse sohbet sunucusu bunu yayınlıyor. Discord
+        // KENDİNE DM atmaya izin vermediği için (canlı test edildi) haber verme yolu bu: panelde
+        // bloklamayan bir Windows bildirimi - uygulamanın zaten kullandığı desenle aynı.
+        if (msg.type === 'alert' && msg.text) {
+            console.log(`[Sohbet] VDS uyarısı: ${msg.text}`);
+            try {
+                new Notification({
+                    title: msg.level === 'ok' ? 'Nexora Panel - VDS' : 'Nexora Panel - VDS Uyarısı',
+                    body: String(msg.text).slice(0, 300),
+                }).show();
+            } catch (error) {
+                console.log(`[Sohbet] Uyarı bildirimi gösterilemedi: ${error.message}`);
+            }
+        }
         if (mainWindow) mainWindow.webContents.send('chat-event', msg);
     });
 
@@ -2025,160 +1855,6 @@ function reportStatEvent(type) {
     }).catch((error) => {
         console.log(`[İstatistik] Olay gönderilemedi (${type}): ${error.message}`);
     }).finally(() => clearTimeout(timeout));
-}
-
-// --- "!id <sorgu>" KOMUTU (yetkili sohbet/bot-komut kanalları) ---
-// Bu botu kullanan birkaç arkadaşın kendi bot instance'ı da AYNI kanalları dinliyor -
-// biri "!id 256" yazınca hepsi aynı anda görüyor, hepsi cevap verirse aynı sonuç 5 kez
-// yazılmış olur. EMOJİSİZ çözüm - reaction yerine bir "claim mesajı" kullanılıyor, sadece
-// "Mesaj Gönder" izni yeterli (bu zaten şart, cevap da mesajla gidiyor):
-// 1. Komutu gören her instance kısa rastgele bir gecikme bekler, komuttan SONRAKİ
-//    mesajlara bakıp (kendi mesajı REFERANS ALAN, yani ona REPLY olan bir bot mesajı) var
-//    mı diye kontrol eder - varsa başkası zaten üstlenmiş demektir, çekilir.
-// 2. Yoksa HEMEN kendi "🔍 Sorgu üstlenildi, aranıyor..." claim mesajını REPLY olarak
-//    gönderir - bu mesajın kendisi, artık diğer instance'ların 1. adımda göreceği "işaret".
-// 3. Sorgu uzun sürebildiği için (60sn'ye kadar) kısa bir "sakinleşme" süresi sonra TEKRAR
-//    kontrol edilir - neredeyse aynı anda birden fazla instance da claim mesajı göndermiş
-//    olabilir (check+gönderme arasındaki dar ağ gecikmesi penceresi yüzünden). Birden
-//    fazlaysa DETERMİNİSTİK bir kazanan seçilir (en küçük Discord kullanıcı ID'si - herkes
-//    AYNI hesaplamayı yapıp AYNI sonuca varır) - kaybedenler kendi claim mesajlarını SİLİP
-//    (bu da özel izin gerektirmiyor, kendi mesajını silmek her zaman serbest) çekilir.
-// 4. Kazanan sorguyu çözüp SONUCU claim mesajına EDİT ile yazar (yeni mesaj atmaz) - yani
-//    kanalda hep TEK bir mesaj kalır: önce "aranıyor...", sonra sonuç.
-const ID_COMMAND_CHANNEL_IDS = ['1475520758095544490', '1470230482649223197', '1470230478274564289', '1502372307887194132', '1470230475485479097'];
-const ID_COMMAND_CLAIM_PREFIX = '🔍 Sorgu üstlenildi, aranıyor...';
-
-// CANLIDA BULUNAN BUG (2026-08-14, Player ID 217 sorgusu): 3 instance de AYNI ANDA tam
-// sonuç yazdı - yani her biri diğerlerinin claim'ini GÖREMEDİ. Kök sebep kesin doğrulanamadı
-// (muhtemelen m.reference?.messageId eşleşmesi FARKLI bir bot instance'ının REST ile fetch
-// ettiği mesajlarda güvenilir dolmuyor) ama tek bir zayıf noktaya bağımlı kalmamak için 3
-// KATMANLI hale getirildi: (1) claim/sonuç metninin KENDİSİNE sorguya özel bir etiket
-// ("(sorgu)") eklendi - eşleşme artık .reference'a bağımlı DEĞİL, mesaj içeriğinden de
-// anlaşılıyor. (2) "sakinleşme" süresi uzatıldı. (3) Sonucu PAYLAŞMADAN hemen önce SON bir
-// çapraz kontrol eklendi - yukarıdaki tie-break her nasılsa yine yanlış giderse bile bu son
-// kontrol ikinci bir tam sonucun yazılmasını engelliyor.
-function buildIdCommandClaimText(query) {
-    return `${ID_COMMAND_CLAIM_PREFIX} ("${query}")`;
-}
-
-function formatIdCommandResult(query, result) {
-    if (!result) return `❌ Sonuç bulunamadı ("${query}")`;
-    const lines = [`🔎 **Kimlik Sorgu Sonucu** ("${query}")`];
-    if (result.playerId) lines.push(`Oyun İçi ID: ${result.playerId}`);
-    if (result.name) lines.push(`Steam İsmi: ${result.name}`);
-    if (result.steam) lines.push(`Steam: ${result.steam}`);
-    if (result.discord) lines.push(`Discord: <@${result.discord}>`);
-    if (result.license) lines.push(`License: ${result.license}`);
-    if (result.online !== null && result.online !== undefined) lines.push(`Oyunda mı: ${result.online ? 'Evet' : 'Hayır'}`);
-    if (result.banned) lines.push(`🚫 FG Banlı: Evet`);
-    return lines.join('\n');
-}
-
-// Komuttan SONRA gelen, bu SORGUYA ait claim/sonuç bot mesajlarını döndürür. .reference
-// eşleşmesi hâlâ birinci sinyal (en kesin olan) ama TEK BAŞINA yeterli çıkmadığı için (bkz.
-// yukarıdaki bug notu) mesaj içeriğindeki "(sorgu)" etiketi de yedek sinyal olarak kontrol
-// ediliyor - claim VE sonuç metinlerinin İKİSİ de bu etiketi içeriyor (bkz. buildIdCommandClaimText
-// / formatIdCommandResult).
-async function findIdCommandClaimReplies(commandMessage, query) {
-    const recent = await commandMessage.channel.messages.fetch({ limit: 50, after: commandMessage.id });
-    const queryTag = `("${query}")`;
-    return [...recent.values()].filter((m) => {
-        if (!m.author?.bot) return false;
-        if (m.reference?.messageId === commandMessage.id) return true;
-        return typeof m.content === 'string' && m.content.includes(queryTag);
-    });
-}
-
-async function handleIdCommand(message, query) {
-    let claimMessage;
-
-    // ÖNCELİK 1: merkezi claim sunucusu (VDS) - atomik/kesin cevap veriyor, kullanılabilirse
-    // aşağıdaki Discord-mesaj-tabanlı adımların (rastgele gecikme, "sakinleşme", tie-break,
-    // son güvenlik kontrolü) HİÇBİRİNE gerek kalmıyor - message.id zaten global-benzersiz.
-    const serverResult = await claimViaServer(message.id);
-    if (serverResult) {
-        if (!serverResult.winner) {
-            console.log(`[!id] "${query}" için claim sunucusu başka bir instance'ı (${serverResult.winnerBotId}) kazanan gösterdi, atlanıyor.`);
-            return;
-        }
-        console.log(`[!id] "${query}" claim sunucusundan kazanıldı.`);
-        try {
-            claimMessage = await message.reply(buildIdCommandClaimText(query));
-        } catch (error) {
-            console.log(`[!id] Claim mesajı gönderilemedi: ${error.message}`);
-            return;
-        }
-    } else {
-        // ÖNCELİK 2 (FALLBACK): sunucuya ulaşılamadı - eski Discord-mesaj-tabanlı yöntem.
-        // Rastgele mikro-gecikme (100-900ms) - tüm instance'lar komutu AYNI ANDA görüyor,
-        // bu gecikme "hepsi aynı milisaniyede claim mesajı atar" çakışmasını azaltır ama TEK
-        // BAŞINA yeterli değil, bu yüzden aşağıda bir de DETERMİNİSTİK TIE-BREAK adımı var.
-        await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 900));
-        try {
-            const existing = await findIdCommandClaimReplies(message, query);
-            if (existing.length > 0) {
-                console.log(`[!id] "${query}" için başka bir instance zaten üstlenmiş, atlanıyor.`);
-                return;
-            }
-            claimMessage = await message.reply(buildIdCommandClaimText(query));
-        } catch (error) {
-            console.log(`[!id] Claim aşamasında hata: ${error.message}`);
-            return;
-        }
-
-        // "Sakinleşme" süresi - neredeyse aynı anda birden fazla instance da claim mesajı
-        // göndermiş olabilir. Kısa bir süre bekleyip TEKRAR kontrol ediyoruz - bu sürede diğer
-        // olası claim'ler de Discord'a işlenmiş olur. Birden fazla claim varsa DETERMİNİSTİK
-        // bir kazanan seçiyoruz (en küçük Discord kullanıcı ID'si) - kaybedenler kendi claim
-        // mesajlarını silip çekiliyor. Canlıdaki bug'dan sonra süre biraz uzatıldı (2-3.5sn).
-        await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 1500));
-        try {
-            const claimants = await findIdCommandClaimReplies(message, query);
-            if (claimants.length > 1) {
-                const winnerId = claimants.reduce((min, m) => (BigInt(m.author.id) < BigInt(min) ? m.author.id : min), claimants[0].author.id);
-                if (winnerId !== client.user.id) {
-                    console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kaybedildi (kazanan: ${winnerId}) - claim mesajım siliniyor.`);
-                    await claimMessage.delete().catch(() => {});
-                    return;
-                }
-                console.log(`[!id] "${query}" için ${claimants.length} instance aynı anda üstlenmiş, tie-break kazanıldı - devam ediliyor.`);
-            }
-        } catch (error) {
-            console.log(`[!id] Tie-break kontrolü yapılamadı (${error.message}), yine de devam ediliyor.`);
-        }
-
-        // SON GÜVENLİK KONTROLÜ (sadece fallback yolunda - sunucu yolunda zaten atomik/kesin):
-        // sonucu paylaşmadan HEMEN önce, sorgu sürerken başka bir instance zaten TAM SONUÇ
-        // paylaşmış mı diye bakılıyor - tie-break yine de yanlış giderse bile bu SON çapraz
-        // kontrol ikinci bir sonucun yazılmasını engelliyor.
-        try {
-            const finalCheck = await findIdCommandClaimReplies(message, query);
-            const alreadyAnswered = finalCheck.some((m) => m.id !== claimMessage.id && /^(🔎|❌|⚠️)/.test(m.content || ''));
-            if (alreadyAnswered) {
-                console.log(`[!id] "${query}" için başka bir instance bu arada zaten sonucu paylaşmış - kendi claim mesajım siliniyor, ikinci sonuç yazılmıyor.`);
-                await claimMessage.delete().catch(() => {});
-                return;
-            }
-        } catch (error) {
-            console.log(`[!id] Son güvenlik kontrolü yapılamadı (${error.message}), yine de sonuç paylaşılıyor.`);
-        }
-    }
-
-    console.log(`[!id] "${query}" sorgusu üstlenildi, aranıyor...`);
-    let resultText;
-    try {
-        const result = await resolvePlayerIdentity(query);
-        resultText = formatIdCommandResult(query, result);
-    } catch (error) {
-        console.log(`[Hata] !id "${query}": ${error.message}`);
-        resultText = `⚠️ Hata ("${query}"): ${error.message}`;
-    }
-
-    try {
-        await claimMessage.edit(resultText);
-    } catch (error) {
-        console.log(`[Hata] !id "${query}" sonucu yazılamadı: ${error.message}`);
-    }
 }
 
 // Bu kişinin daha önce kaç kez düştüğünü (son 50 rapor içinde) kayan pencereye
@@ -2471,13 +2147,17 @@ client.on('messageCreate', async (message) => {
         if (report) showFiveguardNotification(report);
     }
 
-    // --- "!id <sorgu>" KOMUTU ---
-    if (ID_COMMAND_CHANNEL_IDS.includes(message.channel.id) && !message.author.bot) {
-        const idMatch = message.content.trim().match(/^!id\s+(\S+)/i);
-        if (idMatch) {
-            handleIdCommand(message, idMatch[1]); // await YOK - dinleyiciyi bloklamasın, hata da kendi içinde yakalanıyor
-        }
-    }
+    // --- "!id <sorgu>" KOMUTU: ARTIK MASAÜSTÜ UYGULAMASINDAN CEVAPLANMIYOR ---
+    // Kullanıcı: "!id komutu gelince SADECE VDS'ten cevap gelsin, diğer kullanıcıları hiç
+    // karıştırma, VDS direkt benim hesabımdan cevap versin, 2 mesaj atmasın."
+    // Bu yüzden buradaki tetikleyici KALDIRILDI - artık komutu sadece VDS'de sürekli çalışan
+    // id-responder.js (kullanıcının KENDİ hesabıyla giriş yapmış durumda) görüp yanıtlıyor.
+    // Alttaki handleIdCommand/findIdCommandClaimReplies/buildIdCommandClaimText fonksiyonları
+    // BİLEREK silinmedi (id-responder.js onların birebir kopyasını çalıştırıyor; ileride tekrar
+    // masaüstünden cevaplama istenirse burayı geri açmak yeterli) - şu an sadece çağrılmıyorlar.
+    // AYRICA savunmanın ikinci katmanı sunucu tarafında: claim-server.js artık "source" alanı
+    // 'vds-id-responder' olmayan HİÇBİR isteğin claim kazanmasına izin vermiyor - yani henüz
+    // güncelleme almamış eski sürümdeki arkadaş uygulamaları da cevap veremiyor.
 
     // --- LİSANS YAKALAMA (ticket açılışında botun attığı oyuncu bilgi mesajından) ---
     if (message.channel.parentId === CATEGORY_ID && message.author.bot) {
