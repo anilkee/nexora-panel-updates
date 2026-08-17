@@ -505,6 +505,41 @@
         .chat-input-row { display: flex; gap: 8px; }
         .chat-input-row input { flex: 1 1 auto; min-width: 0; }
         .chat-online-hint { font-size: 10px; color: var(--text-lo); margin: -4px 0 2px; }
+
+        /* Sohbette o an bağlı olan kişilerin avatar+isim rozetleri - eskiden sadece
+           "3 kişi bağlı" yazıyordu, kullanıcı VDS panelindeki gibi burada da fotoğrafları
+           görmek istedi. */
+        .chat-presence {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 0 0 10px;
+        }
+
+        .chat-presence-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 9px 3px 3px;
+            background: var(--bg-elev);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+        }
+
+        .chat-presence-avatar {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: var(--bg-panel);
+            flex-shrink: 0;
+        }
+
+        .chat-presence-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-hi);
+        }
     </style>
 </head>
 <body data-theme="a" data-layout="classic" data-section="tickets">
@@ -804,6 +839,7 @@
                 <h2 class="settings-title">Sohbet</h2>
             </div>
             <p class="chat-online-hint" id="chatOnlineHint"></p>
+            <div class="chat-presence" id="chatPresence"></div>
             <div class="chat-panel">
                 <div class="chat-messages" id="chatMessages">
                     <p class="chat-empty" id="chatEmpty">Henüz mesaj yok.</p>
