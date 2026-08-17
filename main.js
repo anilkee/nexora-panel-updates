@@ -79,7 +79,7 @@ app.on('second-instance', () => {
     }
 });
 
-const { Client, MessageSelectMenu } = require('discord.js-selfbot-v13');
+const { Client, MessageSelectMenu, MessageAttachment } = require('discord.js-selfbot-v13');
 // NOT: "/player-info" sorgulama mantığı (ve onun için gereken derin discord.js-selfbot-v13
 // require'ları) artık ORTAK MODÜLDE: player-info.js. VDS'deki id-responder.js de AYNI dosyayı
 // kullanıyor - eskiden iki ayrı elle-kopyalanmış sürüm vardı ve sessizce sapıp canlıda soruna
@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.20.0';
+const CURRENT_VERSION = '1.21.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -955,11 +955,13 @@ async function performAcCall({ discord, license, playerId, name, count, force })
 
         const announceChannel = client.channels.cache.get(AC_ANNOUNCE_CHANNEL_ID);
         if (!announceChannel) throw new Error(`AC duyuru kanalı bulunamadı (${AC_ANNOUNCE_CHANNEL_ID})`);
-        await announceChannel.send(`<@${discord}> ${acTicketMessage} ${callCount}x`);
+        // Duyuru mesajinin KENDISI kanit oluyor: kisi bundan sonra cikarsa #kontrol-log'a
+        // "AC cagrisi su mesajda yapildi" diye linki dusuluyor.
+        const announceMessage = await announceChannel.send(`<@${discord}> ${acTicketMessage} ${callCount}x`);
         console.log(`[AC Çağır] Duyuru kanalına etiketlendi (${name || discord}, ${callCount}x).`);
         results.push(`duyuru kanalına ${callCount}x olarak etiketlendi`);
 
-        watchForDisconnectionAfterAcCall({ discord, license, name });
+        watchForDisconnectionAfterAcCall({ discord, license, name, acCallMessageUrl: buildMessageUrl(announceMessage) });
 
         return { success: true, message: results.join(', ') + '.' };
     } catch (error) {
@@ -1026,7 +1028,148 @@ async function performAcCallSpam({ discord, license, playerId, name }) {
 // bildirimi gönderir. Süre içinde hiçbir şey olmazsa sessizce bırakılır.
 const AC_CALL_WATCH_MS = 3 * 60 * 1000;
 
-function watchForDisconnectionAfterAcCall({ discord, license, name }) {
+// AC ekibinin "kontrol-log" kanali (MD PVP YETKİLİ & LOG sunucusu). Ekip buraya elle
+// "<discord id> | kont çağırılınca q" gibi satirlar yaziyordu - kullanici bunu otomatiklestirmek
+// istedi: "kontrole cagirinca quiti kanitlariyla birlikte log dus ... ve fg offline ban at".
+const KONTROL_LOG_CHANNEL_ID = '1473372352078286951';
+
+// --- KONTROL-LOG KAYIT BİÇİMİ ---
+// Ekip eskiden "<id> | Kontrol red" gibi tek satır yazıyordu; kullanıcı "kendin güzel bir
+// desenle yaz" dediği için kayıtlar okunaklı, tutarlı bir düzene çekildi: başlık + kişi +
+// bilgiler + kanıtlar + yapılan işlem. Discord'un kendi zaman etiketi (<t:unix:f>) kullanılıyor -
+// herkesin kendi saat diliminde doğru görünür.
+const KONTROL_LOG_AYIRAC = '─────────────────────';
+
+function discordZaman(date = new Date()) {
+    const unix = Math.floor(date.getTime() / 1000);
+    return `<t:${unix}:f> (<t:${unix}:R>)`;
+}
+
+// Kişiyi hem tıklanabilir etiket hem KOPYALANABİLİR ham ID olarak yazar - ekip ID'yi
+// sık sık kopyalayıp başka yere yapıştırıyor.
+function kisiSatiri(discordId, isim) {
+    if (!discordId) return `👤 **Kişi:** ${isim || 'bilinmiyor'}`;
+    const isimEk = isim ? ` — ${isim}` : '';
+    return `👤 **Kişi:** <@${discordId}> \`${discordId}\`${isimEk}`;
+}
+
+// Bir Discord mesajinin kalici linki - kanit olarak log satirina ekleniyor.
+function buildMessageUrl(message) {
+    if (!message) return null;
+    const guildId = message.guildId || message.guild?.id;
+    if (!guildId) return null;
+    return `https://discord.com/channels/${guildId}/${message.channelId}/${message.id}`;
+}
+
+// NOT: Cikis sebebine (Exiting / connection timed out / vb.) GORE AYRIM YAPILMIYOR.
+// Ilk tasarimda "sadece bilerek cikista (Exiting) ban at, timeout'ta atma" denmisti (interneti
+// kopan masum biri banlanmasin diye) ama kullanici bunu bilerek reddetti:
+// "nasil cikarsa ciksin ban at, sebebine gore degistirme, onu sahte yapiyolar, adami ac
+// cagirdigim an cikmasi tesaduf olamaz" - yani timeout'u fisi cekerek KASTEN uretiyorlar.
+// Sebep yine de log satirina yaziliyor (kanit/inceleme icin dursun).
+
+// "Kontrol Red": kisi kontrolu reddettiginde AC ekibi #kontrol-log'a elle
+// "<discord id> | Kontrol red" + ekran goruntusu yaziyordu. Artik panelden tek tikla gidiyor.
+// Ekran goruntusu ZORUNLU DEGIL - elde goruntu yoksa kayit yine de dussun diye.
+async function performKontrolRed(channelId, imageDataUrl) {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) {
+        return { success: false, message: 'Ticket kanalı bulunamadı.' };
+    }
+
+    // Hedef kisinin Discord ID'si - ticket kanalindan zaten bulunabiliyor (kontrol/ban
+    // akislarinda kullanilan AYNI fonksiyon, yeni bir tahmin yontemi uydurulmadi).
+    let targetUserId = null;
+    try {
+        targetUserId = await findTargetUserId(channel, null);
+    } catch (error) {
+        console.log(`[Kontrol Red] Hedef bulunamadı: ${error.message}`);
+    }
+    if (!targetUserId) {
+        return { success: false, message: `${channel.name}: hedef kullanıcı bulunamadı, kayıt düşülmedi.` };
+    }
+
+    const files = [];
+    if (imageDataUrl) {
+        try {
+            // data:image/png;base64,AAAA... -> Buffer
+            const base64 = String(imageDataUrl).split(',')[1] || '';
+            const buffer = Buffer.from(base64, 'base64');
+            if (buffer.length > 0) files.push(new MessageAttachment(buffer, 'kontrol-red.png'));
+        } catch (error) {
+            console.log(`[Kontrol Red] Ekran görüntüsü işlenemedi: ${error.message}`);
+        }
+    }
+
+    try {
+        const kontrolLogChannel = client.channels.cache.get(KONTROL_LOG_CHANNEL_ID)
+            || await client.channels.fetch(KONTROL_LOG_CHANNEL_ID);
+        const govde = [
+            '🚫 **KONTROL REDDEDİLDİ**',
+            KONTROL_LOG_AYIRAC,
+            kisiSatiri(targetUserId, null),
+            `🎫 **Ticket:** ${channel.name}`,
+            `🕐 **Zaman:** ${discordZaman()}`,
+            `🧑‍💻 **Kaydeden:** <@${client.user.id}>`,
+            files.length ? '📎 **Kanıt:** ekran görüntüsü ekte' : '📎 **Kanıt:** ekran görüntüsü eklenmedi',
+        ].join('\n');
+        await kontrolLogChannel.send({ content: govde, files });
+        const ekBilgi = files.length ? ' (ekran görüntüsüyle)' : ' (ekran görüntüsü yok)';
+        console.log(`[Kontrol Red] ${channel.name} için kayıt düşüldü: ${targetUserId}${ekBilgi}.`);
+        return { success: true, message: `Kontrol red kaydı düşüldü: ${targetUserId}${ekBilgi}.` };
+    } catch (error) {
+        console.log(`[Hata] Kontrol red kaydı düşülemedi: ${error.message}`);
+        return { success: false, message: `Kayıt düşülemedi: ${error.message}` };
+    }
+}
+
+// AC cagrildiktan sonra oyundan cikan kisiyi #kontrol-log'a KANITLARIYLA yazar; cikis
+// "Exiting" (bilerek cikma) ise ayrica otomatik "/fg offline-ban" atar.
+async function logKontrolQuit({ entry, displayName, discord, license, acCallMessageUrl, disconnectMessageUrl }) {
+    const hedefId = entry.discord || discord || '';
+
+    const satirlar = [];
+    satirlar.push('🚪 **KONTROLE ÇAĞIRINCA OYUNDAN ÇIKTI**');
+    satirlar.push(KONTROL_LOG_AYIRAC);
+    satirlar.push(kisiSatiri(hedefId, displayName));
+    if (license) satirlar.push(`🔑 **License:** \`${license}\``);
+    if (entry.reason) satirlar.push(`📄 **Çıkış sebebi:** ${entry.reason}`);
+    satirlar.push(`🕐 **Zaman:** ${discordZaman()}`);
+    if (acCallMessageUrl || disconnectMessageUrl) {
+        satirlar.push('');
+        satirlar.push('**📎 Kanıtlar**');
+        if (acCallMessageUrl) satirlar.push(`• AC çağrısı: ${acCallMessageUrl}`);
+        if (disconnectMessageUrl) satirlar.push(`• Çıkış kaydı: ${disconnectMessageUrl}`);
+    }
+    satirlar.push('');
+
+    // Cikis sebebi NE OLURSA OLSUN ban atiliyor (bkz. yukaridaki not) - tek sart license'in
+    // bilinmesi, cunku "/fg offline-ban" onunla calisiyor.
+    let banSonucu = null;
+    if (license) {
+        banSonucu = await performLookupFgBan({
+            type: 'offline-ban',
+            license,
+            reason: 'kontrol çağırınca oyundan quit',
+        });
+        satirlar.push(banSonucu.success
+            ? '🚫 **İşlem:** otomatik `/fg offline-ban` gönderildi.'
+            : `⚠️ **İşlem:** otomatik ban GÖNDERİLEMEDİ — ${banSonucu.message}`);
+    } else {
+        satirlar.push('⚠️ **İşlem:** license bulunamadı, otomatik ban gönderilemedi — elle bakılmalı.');
+    }
+
+    try {
+        const kontrolLogChannel = client.channels.cache.get(KONTROL_LOG_CHANNEL_ID)
+            || await client.channels.fetch(KONTROL_LOG_CHANNEL_ID);
+        await kontrolLogChannel.send(satirlar.join('\n'));
+        console.log(`[Kontrol Log] ${displayName} için "kontrol çağırınca quit" kaydı düşüldü${banSonucu?.success ? ' + otomatik ban' : ''}.`);
+    } catch (error) {
+        console.log(`[Hata] kontrol-log kaydı düşülemedi: ${error.message}`);
+    }
+}
+
+function watchForDisconnectionAfterAcCall({ discord, license, name, acCallMessageUrl }) {
     if (!discord && !license) return;
 
     const listener = (message) => {
@@ -1041,6 +1184,21 @@ function watchForDisconnectionAfterAcCall({ discord, license, name }) {
 
         const banned = Boolean(entry.reason && /ban/i.test(entry.reason));
         const displayName = entry.name || name || discord;
+
+        // KONTROLE CAGIRINCA QUIT: kisi AC cagrildiktan sonra oyundan KENDI ISTEGIYLE ciktiysa
+        // (Reason: Exiting) bu, ekibin elle "<id> | kont çağırılınca q" diye logladigi durum.
+        // Artik bot hem kanit linkleriyle #kontrol-log'a yaziyor hem de otomatik offline-ban atiyor.
+        // Ban FG botu tarafinda license ile calisiyor - license bu cikis kaydinin icinde geliyor.
+        if (!banned) {
+            logKontrolQuit({
+                entry,
+                displayName,
+                discord,
+                license: entry.license || license,
+                acCallMessageUrl,
+                disconnectMessageUrl: buildMessageUrl(message),
+            });
+        }
         console.log(`[AC Çağır] ${displayName} AC çağrıldıktan sonra ${banned ? 'BANLANDI' : 'sunucudan çıktı'} (sebep: ${entry.reason || 'belirtilmedi'}).`);
 
         // Windows bildirimi kolayca gözden kaçabildiği için (köşede sessizce
@@ -1156,6 +1314,27 @@ ipcMain.on('ticket-ban-confirm', async (event, { channelId, reason }) => {
     } catch (error) {
         console.log(`[Hata] /fg ban komutları gönderilemedi: ${error.message}`);
     }
+});
+
+ipcMain.on('ticket-kontrol-red', async (event, { channelId, imageDataUrl }) => {
+    let result;
+    try {
+        result = await performKontrolRed(channelId, imageDataUrl);
+    } catch (error) {
+        console.log(`[Hata] Kontrol red işlemi başarısız: ${error.message}`);
+        result = { success: false, message: error.message };
+    }
+    if (mainWindow) mainWindow.webContents.send('kontrol-red-result', result);
+    // Sonuc gozden kacmasin diye Windows bildirimi de gonderiliyor (uygulamanin baska
+    // yerlerde de kullandigi, BLOKLAMAYAN desen).
+    try {
+        if (Notification.isSupported()) {
+            new Notification({
+                title: result.success ? '✅ Kontrol Red kaydedildi' : '⚠️ Kontrol Red başarısız',
+                body: result.message,
+            }).show();
+        }
+    } catch (error) { /* bildirim gosterilemedi - islem yine de tamamlandi */ }
 });
 
 ipcMain.on('ticket-hold', (event, channelId) => {
@@ -1751,6 +1930,10 @@ function connectChatSocket() {
             userId: client.user.id,
             username: client.user.displayName || client.user.username,
             avatarUrl: client.user.displayAvatarURL({ size: 128, format: 'png' }),
+            // Sürüm bildirimi: VDS paneli "kim hangi sürümde" gösterebilsin diye. Kullanıcı her
+            // yayından sonra "herkes güncellendi mi" diye merak ediyordu - artık bakıp görebiliyor.
+            // Bu alanı GÖNDERMEYEN bir istemci, bu özellikten ÖNCEKİ bir sürümde demektir.
+            version: CURRENT_VERSION,
         }));
     });
 
