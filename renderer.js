@@ -386,6 +386,100 @@ function setHoldButtonState(btn, channelId, held) {
 
 let banReasonOpenFor = null; // sebep girilirken ticket listesinin yenilenip alanı silmesini önler
 
+// "Kontrol Red" - kişi kontrolü reddettiğinde AC ekibi #kontrol-log'a "<id> | Kontrol red" +
+// ekran görüntüsü yazıyordu. Ekran görüntüsü oyun/telefon tarafından geldiği için bot onu kendisi
+// üretemez; kullanıcı "panele yapıştırayım" dedi - bu satır Ctrl+V ile resmi alıp gönderiyor.
+function toggleKontrolRedRow(card, channelId) {
+    const existing = card.querySelector('.kontrol-red-row');
+    if (existing) {
+        existing.remove();
+        banReasonOpenFor = null;
+        return;
+    }
+
+    // Ban sebebi satırıyla AYNI kilit kullanılıyor - alan açıkken ticket listesi yenilenip
+    // yapıştırılmış görüntüyü silmesin diye.
+    banReasonOpenFor = channelId;
+
+    const row = document.createElement('div');
+    row.className = 'kontrol-red-row';
+
+    const pasteBox = document.createElement('div');
+    pasteBox.className = 'kontrol-red-paste';
+    pasteBox.tabIndex = 0;
+    pasteBox.textContent = 'Ekran görüntüsünü buraya yapıştır (Ctrl+V)';
+
+    let imageDataUrl = null;
+
+    const preview = document.createElement('img');
+    preview.className = 'kontrol-red-preview';
+    preview.style.display = 'none';
+
+    const setImage = (dataUrl) => {
+        imageDataUrl = dataUrl;
+        preview.src = dataUrl;
+        preview.style.display = 'block';
+        pasteBox.textContent = 'Görüntü eklendi - değiştirmek için tekrar yapıştır';
+        pasteBox.classList.add('has-image');
+    };
+
+    const readImageFile = (file) => {
+        const reader = new FileReader();
+        reader.onload = () => setImage(reader.result);
+        reader.readAsDataURL(file);
+    };
+
+    pasteBox.addEventListener('paste', (e) => {
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        for (const item of items) {
+            if (item.type && item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) {
+                    readImageFile(file);
+                    e.preventDefault();
+                    return;
+                }
+            }
+        }
+    });
+
+    // Sürükle-bırak da çalışsın (dosyayı sürükleyip bırakmak yapıştırmaktan kolay olabiliyor).
+    pasteBox.addEventListener('dragover', (e) => { e.preventDefault(); pasteBox.classList.add('dragging'); });
+    pasteBox.addEventListener('dragleave', () => pasteBox.classList.remove('dragging'));
+    pasteBox.addEventListener('drop', (e) => {
+        e.preventDefault();
+        pasteBox.classList.remove('dragging');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file && file.type.startsWith('image/')) readImageFile(file);
+    });
+
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'ticket-btn ban-btn';
+    sendBtn.innerHTML = `${iconHtml('check')}<span>Gönder</span>`;
+    sendBtn.onclick = () => {
+        // Görüntü ZORUNLU DEĞİL - bazen elde ekran görüntüsü olmayabilir, kayıt yine de düşsün.
+        ipcRenderer.send('ticket-kontrol-red', { channelId, imageDataUrl });
+        row.remove();
+        banReasonOpenFor = null;
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ticket-btn';
+    cancelBtn.innerHTML = iconHtml('x');
+    cancelBtn.setAttribute('aria-label', 'İptal');
+    cancelBtn.onclick = () => {
+        row.remove();
+        banReasonOpenFor = null;
+    };
+
+    row.appendChild(pasteBox);
+    row.appendChild(preview);
+    row.appendChild(sendBtn);
+    row.appendChild(cancelBtn);
+    card.appendChild(row);
+    pasteBox.focus();
+}
+
 function toggleBanReasonRow(card, channelId, stage) {
     const existing = card.querySelector('.ban-reason-row');
     if (existing) {
@@ -517,6 +611,12 @@ function renderTicketCard(ticket) {
         banBtn.onclick = () => toggleBanReasonRow(card, ticket.id, ticket.banStage);
         actions.appendChild(banBtn);
 
+        const kontrolRedBtn = document.createElement('button');
+        kontrolRedBtn.className = 'ticket-btn kontrol-red-btn';
+        kontrolRedBtn.innerHTML = `${iconHtml('x')}<span>Kontrol Red</span>`;
+        kontrolRedBtn.onclick = () => toggleKontrolRedRow(card, ticket.id);
+        actions.appendChild(kontrolRedBtn);
+
         const holdBtn = document.createElement('button');
         holdBtn.className = 'ticket-btn hold-btn';
         setHoldButtonState(holdBtn, ticket.id, ticket.held);
@@ -578,6 +678,12 @@ ipcRenderer.on('ticket-scan-ended', (event, { channelId }) => {
     const card = document.getElementById(`ticket-${channelId}`);
     const btn = card?.querySelector('.kontrol-btn');
     if (btn) setKontrolButtonState(btn, channelId, null);
+});
+
+ipcRenderer.on('kontrol-red-result', (event, result) => {
+    // Sonuç bilgisi ticket kartı yenilenmiş olabileceği için kartta değil, kısa bir
+    // bildirim olarak gösteriliyor (main.js zaten Windows bildirimi de gönderiyor).
+    console.log('[Kontrol Red]', result.message);
 });
 
 ipcRenderer.on('ticket-hold-changed', (event, { channelId, held }) => {
