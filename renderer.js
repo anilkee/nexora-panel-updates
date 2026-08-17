@@ -753,6 +753,7 @@ const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');
 const chatOnlineHint = document.getElementById('chatOnlineHint');
+const chatPresence = document.getElementById('chatPresence');
 
 function scrollChatToBottom() {
     if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -820,10 +821,34 @@ function renderChatHistory(messages) {
     if (document.body.dataset.section === 'chat') scrollChatToBottom();
 }
 
+// O an sohbete bağlı olan herkesi avatar+isim rozeti olarak çiziyor (eskiden sadece
+// "N kişi bağlı" metni vardı). Veri zaten sunucudan presence olayında avatarUrl ile
+// birlikte geliyordu - burada gösterilmiyordu.
 function renderChatPresence(users) {
-    if (!chatOnlineHint) return;
-    const count = users ? users.length : 0;
-    chatOnlineHint.textContent = count > 0 ? `${count} kişi bağlı` : '';
+    const list = Array.isArray(users) ? users : [];
+    if (chatOnlineHint) {
+        chatOnlineHint.textContent = list.length > 0 ? `${list.length} kişi bağlı` : 'Şu an kimse bağlı değil.';
+    }
+    if (!chatPresence) return;
+    chatPresence.innerHTML = '';
+    list.forEach((u) => {
+        const item = document.createElement('div');
+        item.className = 'chat-presence-item';
+
+        const avatar = document.createElement('img');
+        avatar.className = 'chat-presence-avatar';
+        avatar.src = u.avatarUrl || '';
+        avatar.alt = '';
+        avatar.addEventListener('error', () => { avatar.style.visibility = 'hidden'; });
+
+        const name = document.createElement('span');
+        name.className = 'chat-presence-name';
+        name.textContent = u.username || 'Bilinmeyen';
+
+        item.appendChild(avatar);
+        item.appendChild(name);
+        chatPresence.appendChild(item);
+    });
 }
 
 // --- Sohbet sekmesi AKTİF DEĞİLKEN gelen mesajlar için nav butonlarında (klasik dişli/sidebar
