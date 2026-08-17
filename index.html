@@ -370,6 +370,52 @@
         .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
         .ticket-btn.ban-btn.active { box-shadow: 0 0 0 1px var(--danger); }
         .ban-reason-row { display: flex; gap: 6px; margin-top: 8px; }
+
+        /* "Kontrol Red" - ekran görüntüsü yapıştırma satırı */
+        .kontrol-red-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .kontrol-red-paste {
+            flex: 1 1 220px;
+            min-height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 10px;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            background: var(--bg-elev);
+            color: var(--text-lo);
+            font-size: 11px;
+            text-align: center;
+            cursor: text;
+            outline: none;
+        }
+
+        .kontrol-red-paste:focus,
+        .kontrol-red-paste.dragging {
+            border-color: var(--accent);
+            color: var(--text-hi);
+        }
+
+        .kontrol-red-paste.has-image {
+            border-style: solid;
+            border-color: var(--ok);
+            color: var(--ok);
+        }
+
+        .kontrol-red-preview {
+            max-height: 46px;
+            max-width: 90px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            object-fit: cover;
+        }
         .ban-reason-row .ban-reason-input {
             flex: 1; padding: 6px 8px; border-radius: calc(var(--radius-card) - 1px);
             background: var(--bg-panel-raise); color: var(--text-hi); border: 1px solid var(--border-c); font-size: 11px;
