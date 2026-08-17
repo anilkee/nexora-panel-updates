@@ -1,4 +1,4 @@
 {
-  "version": "1.19.0",
-  "changelog": "- Sohbet baglantisi artik cok daha saglam: 10sn'de bir nabiz kontrolu + 5sn'de bir 'baglimiyim' kontrolu, kopan baglanti hemen kendini toparliyor\n- Profil fotograflari duzeltildi (VDS panelinin okuyamadigi .webp yerine artik PNG gonderiliyor)\n- VDS panelindeki istatistikler artik avatar da tasiyor"
+  "version": "1.20.0",
+  "changelog": "- !id sorgulari artik cok daha az 'sonuc bulunamadi' donuyor (VDS'in bekleme suresi kisa kalmisti, duzeltildi)\n- Sohbette bagli olan kisiler artik fotograf ve isimleriyle gorunuyor\n- VDS servisleri coktugunde panele Windows bildirimi geliyor\n- Ic yapida buyuk temizlik: ortak kod tek dosyaya alindi, olu kod kaldirildi"
 }
