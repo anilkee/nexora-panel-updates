@@ -1,4 +1,4 @@
 {
-  "version": "1.21.0",
-  "changelog": "- Kontrole cagirinca oyundan cikan kisi artik otomatik loglaniyor: kanit linkleriyle birlikte kontrol-log a dusuyor ve license ile otomatik fg offline-ban atiliyor\n- Yeni 'Kontrol Red' butonu: ekran goruntusunu panele Ctrl+V ile yapistir, kayit ve resim tek seferde kontrol-log a gidiyor\n- Kontrol-log kayitlari yeniden tasarlandi (okunakli duzen, tiklanabilir kisi etiketi, kopyalanabilir ID, otomatik saat)\n- VDS panelinde artik kimin hangi surumde oldugu gorunuyor"
+  "version": "1.22.0",
+  "changelog": "- Artik yaptiginiz her islem merkezi log kanallarina dusuyor (ticket claim/kontrol/kapatma, ban, AC cagirma, kimlik sorgu, kontrol red)\n- Loglari yeni Nexora Kontrol botu yaziyor - duzenli ve renkli embed olarak gorunuyor\n- Kimin ne yaptigi surumuyle birlikte kayit altinda"
 }
