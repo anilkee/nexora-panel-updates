@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.21.0';
+const CURRENT_VERSION = '1.22.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -586,6 +586,7 @@ ipcMain.on('request-open-at-login-status', (event) => {
 
 ipcMain.on('lookup-player', async (event, query) => {
     const result = await getPlayerInfo().resolvePlayerIdentity(query);
+    botLog('lookup', { sorgu: query, bulundu: result ? (result.name || result.playerId || 'evet') : 'hayır' });
     if (mainWindow) mainWindow.webContents.send('lookup-player-result', { query, result });
 });
 
@@ -662,6 +663,7 @@ async function performTicketClaim(channelId) {
         await channel.send({ stickers: ['749054660769218631'] });
         console.log(`[Panel] ${channel.name}: claim edildi, sticker gönderildi.`);
         reportStatEvent('claim');
+        botLog('ticket-claim', { ticket: channel.name });
     } catch (error) {
         console.log(`[Hata] ${channel.name} claim edilemedi: ${error.message}`);
     }
@@ -717,6 +719,7 @@ async function performTicketClose(channelId) {
         await menu.select(menuMessage, [option.value]);
         console.log(`[Panel] ${channel.name}: "Ticket Sil" seçildi.`);
         reportStatEvent('close');
+        botLog('ticket-close', { ticket: channel.name });
     } catch (error) {
         console.log(`[Hata] ${channel.name} kapatılamadı: ${error.message}`);
         if (mainWindow) {
@@ -847,6 +850,7 @@ async function performTicketBanConfirm(channelId, reason) {
             console.log(`[Panel] ${channel.name}: ban sebebi log kanalına düşürüldü.`);
         }
         reportStatEvent('ban');
+        botLog('ticket-ban', { ticket: channel.name, sebep: safeReason, license, 'oyun ici id': gameId });
     } catch (error) {
         console.log(`[Hata] "/fg" slash komutu gönderilemedi: ${error.message}`);
         if (mainWindow) {
@@ -961,6 +965,7 @@ async function performAcCall({ discord, license, playerId, name, count, force })
         console.log(`[AC Çağır] Duyuru kanalına etiketlendi (${name || discord}, ${callCount}x).`);
         results.push(`duyuru kanalına ${callCount}x olarak etiketlendi`);
 
+        botLog('ac-call', { kisi: discord, isim: name, 'kacinci': `${callCount}x`, license });
         watchForDisconnectionAfterAcCall({ discord, license, name, acCallMessageUrl: buildMessageUrl(announceMessage) });
 
         return { success: true, message: results.join(', ') + '.' };
@@ -1115,6 +1120,7 @@ async function performKontrolRed(channelId, imageDataUrl) {
         ].join('\n');
         await kontrolLogChannel.send({ content: govde, files });
         const ekBilgi = files.length ? ' (ekran görüntüsüyle)' : ' (ekran görüntüsü yok)';
+        botLog('kontrol-red', { ticket: channel.name, kisi: targetUserId, 'ekran görüntüsü': files.length ? 'var' : 'yok' });
         console.log(`[Kontrol Red] ${channel.name} için kayıt düşüldü: ${targetUserId}${ekBilgi}.`);
         return { success: true, message: `Kontrol red kaydı düşüldü: ${targetUserId}${ekBilgi}.` };
     } catch (error) {
@@ -1163,6 +1169,13 @@ async function logKontrolQuit({ entry, displayName, discord, license, acCallMess
         const kontrolLogChannel = client.channels.cache.get(KONTROL_LOG_CHANNEL_ID)
             || await client.channels.fetch(KONTROL_LOG_CHANNEL_ID);
         await kontrolLogChannel.send(satirlar.join('\n'));
+        botLog(banSonucu && banSonucu.success ? 'auto-ban-quit' : 'kontrol-quit', {
+            kisi: hedefId,
+            isim: displayName,
+            'çıkış sebebi': entry.reason,
+            license,
+            kanit: disconnectMessageUrl,
+        }, { basarili: banSonucu ? banSonucu.success : undefined });
         console.log(`[Kontrol Log] ${displayName} için "kontrol çağırınca quit" kaydı düşüldü${banSonucu?.success ? ' + otomatik ban' : ''}.`);
     } catch (error) {
         console.log(`[Hata] kontrol-log kaydı düşülemedi: ${error.message}`);
@@ -1248,10 +1261,12 @@ async function performLookupFgBan({ type, playerId, license, reason }) {
         if (type === 'ban') {
             await komutChannel.sendSlash(FG_BOT_ID, 'fg ban', playerId, safeReason);
             console.log(`[Kimlik Sorgula] /fg ban id:${playerId} gönderildi (sebep: ${safeReason}).`);
+            botLog('lookup-ban', { komut: `/fg ban id:${playerId}`, sebep: safeReason });
             return { success: true, message: `/fg ban gönderildi (ID: ${playerId}).` };
         } else {
             await komutChannel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, safeReason);
             console.log(`[Kimlik Sorgula] /fg offline-ban ${license} gönderildi (sebep: ${safeReason}).`);
+            botLog('lookup-ban', { komut: '/fg offline-ban', license, sebep: safeReason });
             return { success: true, message: `/fg offline-ban gönderildi (${license}).` };
         }
     } catch (error) {
@@ -2021,6 +2036,35 @@ ipcMain.on('request-chat-state', (event) => {
 const STATS_SERVER_URL = 'http://185.211.100.43:28418';
 const STATS_EVENT_TIMEOUT_MS = 3000;
 
+// --- MERKEZİ DENETİM KAYDI ---
+// Kullanıcı "botun yaptığı her işlemi logla, gerektiğinde kontrol edebileyim" dedi. Log kanalları
+// kullanıcının KENDİ özel sunucusunda; arkadaşların hesapları o sunucuya ÜYE DEĞİL, oraya doğrudan
+// yazamazlar. Bu yüzden kayıtlar VDS'e HTTP ile bildiriliyor, VDS de kullanıcının hesabıyla yazıyor.
+// reportStatEvent ile AYNI desen: fire-and-forget, hata YUTULUR, asıl işlemi ASLA bloklamaz.
+const BOT_LOG_URL = 'http://185.211.100.43:28419';
+const BOT_LOG_SECRET = 'a7f2c91e4b6d803f5e1a2c8b9d4f6072e3a5c1b8d9f04e27';
+const BOT_LOG_TIMEOUT_MS = 3000;
+
+function botLog(tur, detay, options = {}) {
+    if (!client.user) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), BOT_LOG_TIMEOUT_MS);
+    fetch(`${BOT_LOG_URL}/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Bot-Log-Secret': BOT_LOG_SECRET },
+        body: JSON.stringify({
+            tur,
+            kim: client.user.displayName || client.user.username,
+            kimId: client.user.id,
+            surum: CURRENT_VERSION,
+            detay,
+            basarili: options.basarili,
+        }),
+        signal: controller.signal,
+    }).catch(() => { /* log gönderilemedi - asıl işlem etkilenmemeli, sessiz geçiliyor */ })
+      .finally(() => clearTimeout(timeout));
+}
+
 function reportStatEvent(type) {
     if (!client.user) return;
     const controller = new AbortController();
@@ -2702,6 +2746,7 @@ async function startKontrolScan(channel, targetUserId) {
     channelScans.set(channel.id, code);
     if (mainWindow) mainWindow.webContents.send('ticket-scan-started', { channelId: channel.id, code });
     reportStatEvent('kontrol');
+    botLog('ticket-kontrol', { ticket: channel.name, kod: code, hedef: targetUserId, link: downloadUrl });
 
     console.log(`[Kontrol] Link gönderildi: ${downloadUrl} - 1 dakika sonra sonuç beklemeye başlanacak.`);
     await new Promise(resolve => setTimeout(resolve, KONTROL_RESULT_DELAY_MS));
