@@ -250,6 +250,9 @@
         /* Yan Panel: ticket kartları 2 sütun ızgara halinde. */
         body[data-layout="sidebar"] #ticketsList { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         body[data-layout="sidebar"] #ticketsList .ticket-card { margin-bottom: 0; }
+        /* Yan Panel'de kartlar 2 sütuna sıkıştığı için butonlar biraz daha dar - etiketler yine
+           bölünmüyor, sığmayan buton alt satıra bütün olarak geçiyor. */
+        body[data-layout="sidebar"] .ticket-btn { padding: 6px 9px; font-size: 10.5px; gap: 5px; }
 
         /* Liste + Detay: ticket kartlarının sadece soldan seçilmiş olanı görünür. */
         body[data-layout="list-detail"] #ticketsList .ticket-card { display: none; }
@@ -257,6 +260,19 @@
         /* "AKTİF TİCKETLAR" başlığı çoğul/liste ima ediyor - Liste+Detay'da tek bir ticket'ın
            detayı gösterildiği için anlamsız, bunun yerine üstteki .ld-detail-info kullanılıyor. */
         body[data-layout="list-detail"] #ticketsCard > h2 { display: none; }
+        /* Liste+Detay'da ticket adı ZATEN üstte (.ld-detail-title) yazıyor - kartın içinde tekrar
+           etmesi hem gereksizdi hem "kart içinde kart" hissi veriyordu. Karttaki tekrar kaldırıldı
+           ve kart, çerçevesiz bir AKSİYON ÇUBUĞUNA dönüştürüldü. Hileci uyarısı kaybolmuyor:
+           üstteki ince çizgi kırmızıya dönüyor + soldaki listede kırmızı nokta duruyor. */
+        body[data-layout="list-detail"] #ticketsList .ticket-card.detail-active .ticket-name { display: none; }
+        body[data-layout="list-detail"] #ticketsList .ticket-card.detail-active {
+            background: transparent; border: 0; box-shadow: none;
+            padding: 14px 0 0; margin: 0;
+            border-top: 1px solid var(--border-soft);
+        }
+        body[data-layout="list-detail"] #ticketsList .ticket-card.detail-active.flagged {
+            border-top-color: var(--danger);
+        }
 
         /* Liste + Detay: seçili ticket için otomatik çekilen zengin kimlik bilgisi
            (Oyun İçi ID/License/Discord/Steam + varsa son bağlantı/ban notu). Sadece bu
@@ -356,15 +372,30 @@
             border-radius: 999px; padding: 1px 7px 1px 6px; font-weight: 600;
             display: inline-flex; align-items: center; gap: 3px;
         }
-        .ticket-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+        /* AKSİYON BUTONLARI
+           ESKİ SORUN: "flex: 1" tüm butonları eşit genişliğe zorluyordu; 6 buton yan yana gelince
+           her biri daralıp etiketler İÇERİDE satır atlıyordu ("Kontrol Red" iki satıra bölünüyor,
+           butonlar iç içe geçmiş gibi görünüyordu).
+           ÇÖZÜM: butonlar içeriğine göre genişliyor, etiket asla bölünmüyor (nowrap); sığmayan
+           buton bir alt satıra BÜTÜN olarak geçiyor. */
+        .ticket-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: stretch; }
         .ticket-btn {
-            flex: 1; border: 1px solid var(--border-c); background: transparent;
-            color: var(--text-hi); border-radius: calc(var(--radius-card) - 1px);
-            padding: 6px 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;
-            display: flex; align-items: center; justify-content: center; gap: 4px;
-            transition: background .15s, opacity .15s;
+            flex: 0 1 auto;
+            max-width: 100%;
+            white-space: nowrap;
+            border: 1px solid var(--border-c);
+            background: var(--bg-panel);
+            color: var(--text-hi);
+            border-radius: calc(var(--radius-card) - 2px);
+            padding: 7px 12px;
+            font-size: 11px; font-weight: 600; line-height: 1.15;
+            cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            transition: background .15s, border-color .15s, transform .08s, opacity .15s;
         }
-        .ticket-btn:hover { background: var(--bg-panel); }
+        .ticket-btn .icon { flex-shrink: 0; }
+        .ticket-btn:hover { background: var(--bg-panel-raise); border-color: var(--accent-dim); }
+        .ticket-btn:active { transform: translateY(1px); }
         .ticket-btn.kontrol-btn { color: var(--accent); border-color: var(--accent-dim); }
         .ticket-btn.kontrol-btn.active { color: var(--danger); border-color: var(--danger); }
         .ticket-btn.ban-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
@@ -450,7 +481,10 @@
         .volume-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .volume-row label { margin: 0; }
         .volume-value { font-size: 11px; color: var(--accent); font-weight: 700; min-width: 30px; text-align: right; }
-        input[type="range"] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 3px; background: var(--border-c); outline: none; }
+        /* margin: 0 ŞART - tarayıcı range girdisine varsayılan 2px kenar boşluğu veriyor;
+           "width: 100%" ile birlikte kutusundan 4px taşmasına yol açıyordu (üç yerleşimde de
+           ölçüldü). Sıfırlanınca taşma tam olarak 0 oluyor. */
+        input[type="range"] { -webkit-appearance: none; width: 100%; margin: 0; height: 4px; border-radius: 3px; background: var(--border-c); outline: none; }
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
             background: var(--accent); cursor: pointer; border: 2px solid var(--bg-panel);
