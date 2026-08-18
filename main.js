@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.22.0';
+const CURRENT_VERSION = '1.23.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 const UPDATE_REPO_TOKEN = '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';
@@ -606,16 +606,11 @@ ipcMain.on('lookup-fg-ban', async (event, payload) => {
 });
 
 // --- AKTİF TARAMA / İPTAL SİSTEMİ ---
-const activeScans = new Map(); // kod -> { cancelled: boolean, messages: Message[] }
+const activeScans = new Map(); // kod -> { cancelled: boolean }
 
 function registerScan(code) {
-    activeScans.set(code, { cancelled: false, messages: [] });
+    activeScans.set(code, { cancelled: false });
     if (mainWindow) mainWindow.webContents.send('scan-started', { code });
-}
-
-function trackScanMessage(code, sentMessage) {
-    const scan = activeScans.get(code);
-    if (scan) scan.messages.push(sentMessage);
 }
 
 function isScanCancelled(code) {
@@ -631,10 +626,7 @@ async function cancelScan(code) {
     const scan = activeScans.get(code);
     if (!scan) return;
     scan.cancelled = true;
-    for (const msg of scan.messages) {
-        try { await msg.delete(); } catch (e) {}
-    }
-    console.log(`[İptal] Tarama iptal edildi, gönderilen loglar silindi: ${code}`);
+    console.log(`[İptal] Tarama iptal edildi: ${code}`);
 
     // Kuyrukta bekliyorsa sırasını beklemeden hemen sonuçlandır
     const pending = pollEntries.get(code);
@@ -1106,23 +1098,64 @@ async function performKontrolRed(channelId, imageDataUrl) {
         }
     }
 
+    // Kontrol reddi ARTIK BAN SEBEBİ (kullanıcı isteği). License ile "/fg offline-ban" atılıyor
+    // ve komut TICKET KANALINDAN gönderiliyor - ac-komut kanalından DEĞİL ("fg offline bani
+    // ticket uzerinden at"). Sebep biçimi: "kontrol red -<botu kullanan kişi>".
+    const { license, kaynak: licenseKaynak } = await resolveTicketLicense(channel, targetUserId);
+    const banSebebi = `kontrol red -${client.user.username}`;
+    let banHatasi = null;
+    let banGonderildi = false;
+    if (license) {
+        try {
+            await channel.sendSlash(FG_BOT_ID, 'fg offline-ban', license, banSebebi);
+            banGonderildi = true;
+            reportStatEvent('ban');
+            console.log(`[Kontrol Red] ${channel.name}: /fg offline-ban gönderildi (${license}, sebep: ${banSebebi}).`);
+        } catch (error) {
+            banHatasi = error.message;
+            console.log(`[Hata] Kontrol Red /fg offline-ban gönderilemedi: ${error.message}`);
+        }
+    } else {
+        console.log(`[Kontrol Red] ${channel.name}: license bulunamadı, ban gönderilemedi.`);
+    }
+
     try {
         const kontrolLogChannel = client.channels.cache.get(KONTROL_LOG_CHANNEL_ID)
             || await client.channels.fetch(KONTROL_LOG_CHANNEL_ID);
+
+        let islemSatiri;
+        if (banGonderildi) islemSatiri = `🚫 **İşlem:** \`/fg offline-ban\` gönderildi — sebep: \`${banSebebi}\``;
+        else if (license) islemSatiri = `⚠️ **İşlem:** \`/fg offline-ban\` GÖNDERİLEMEDİ — ${banHatasi}`;
+        else islemSatiri = '⚠️ **İşlem:** license bulunamadığı için ban gönderilemedi';
+
         const govde = [
             '🚫 **KONTROL REDDEDİLDİ**',
             KONTROL_LOG_AYIRAC,
             kisiSatiri(targetUserId, null),
             `🎫 **Ticket:** ${channel.name}`,
+            license ? `🔑 **License:** \`${license}\` _(${licenseKaynak})_` : '🔑 **License:** bulunamadı',
             `🕐 **Zaman:** ${discordZaman()}`,
             `🧑‍💻 **Kaydeden:** <@${client.user.id}>`,
             files.length ? '📎 **Kanıt:** ekran görüntüsü ekte' : '📎 **Kanıt:** ekran görüntüsü eklenmedi',
+            islemSatiri,
         ].join('\n');
         await kontrolLogChannel.send({ content: govde, files });
+
         const ekBilgi = files.length ? ' (ekran görüntüsüyle)' : ' (ekran görüntüsü yok)';
-        botLog('kontrol-red', { ticket: channel.name, kisi: targetUserId, 'ekran görüntüsü': files.length ? 'var' : 'yok' });
+        botLog('kontrol-red', {
+            ticket: channel.name,
+            kisi: targetUserId,
+            'ekran görüntüsü': files.length ? 'var' : 'yok',
+            license: license || 'bulunamadı',
+            'license kaynağı': licenseKaynak || '-',
+            ban: banGonderildi ? `gönderildi (${banSebebi})` : (license ? `HATA: ${banHatasi}` : 'license yok'),
+        });
         console.log(`[Kontrol Red] ${channel.name} için kayıt düşüldü: ${targetUserId}${ekBilgi}.`);
-        return { success: true, message: `Kontrol red kaydı düşüldü: ${targetUserId}${ekBilgi}.` };
+
+        const banNotu = banGonderildi
+            ? ' + /fg offline-ban gönderildi'
+            : (license ? ` (ban HATASI: ${banHatasi})` : ' (license yok, ban atılmadı)');
+        return { success: true, message: `Kontrol red kaydı düşüldü: ${targetUserId}${ekBilgi}${banNotu}.` };
     } catch (error) {
         console.log(`[Hata] Kontrol red kaydı düşülemedi: ${error.message}`);
         return { success: false, message: `Kayıt düşülemedi: ${error.message}` };
@@ -2319,17 +2352,66 @@ function parsePlayerInfoFromBotMessage(message) {
 // ile aynı desen - ham JSON, panelin o an dinliyor olup olmamasından bağımsız) tarayıp bilgiyi
 // TAZE buluyor.
 async function findPlayerInfoFromHistory(channel) {
-    try {
-        const rawMessages = await client.api.channels(channel.id).messages.get({ query: { after: '0', limit: 20 } });
-        for (const message of rawMessages) {
-            if (!message.author?.bot) continue;
-            const info = parsePlayerInfoFromBotMessage(message);
-            if (info.license || info.hasGameIdField) return info;
+    // İKİ uçtan birden bakılıyor:
+    //   * EN ESKİ 20 mesaj - normal akışta "Otomatik Oyuncu Bilgi" gömülüsü ticket açılır açılmaz düşüyor.
+    //   * EN YENİ 100 mesaj - ticket "genel destek" olarak açılıp SONRADAN AC kategorisine sevk
+    //     edildiyse gömülü çok daha geç düşüyor ve ilk 20'nin dışında kalıyor. Kullanıcı bunu
+    //     bildirdi: "o ticketlarda yukardaki bu license kısmını okuyamıyosun".
+    const partiler = [
+        { query: { after: '0', limit: 20 }, etiket: 'en eski 20' },
+        { query: { limit: 100 }, etiket: 'en yeni 100' },
+    ];
+    for (const parti of partiler) {
+        try {
+            const rawMessages = await client.api.channels(channel.id).messages.get({ query: parti.query });
+            for (const message of rawMessages) {
+                if (!message.author?.bot) continue;
+                const info = parsePlayerInfoFromBotMessage(message);
+                if (info.license || info.hasGameIdField) return info;
+            }
+        } catch (error) {
+            console.log(`[Oyuncu Bilgi] ${channel.name}: geçmiş taranamadı (${parti.etiket}): ${error.message}`);
         }
-    } catch (error) {
-        console.log(`[Oyuncu Bilgi] ${channel.name}: geçmiş taranamadı: ${error.message}`);
     }
     return null;
+}
+
+// Ticket'ın license'ını bulmak için ÜÇ KADEMELİ arama - ucuzdan pahalıya sıralı, ilki tutunca durur:
+//   1) Canlı yakalanan değer (channelLicense) - panel ticket açılışını gördüyse bedava.
+//   2) Kanal geçmişi (findPlayerInfoFromHistory) - artık iki uçtan da bakıyor.
+//   3) /player-info slash komutuyla Discord ID'den sorgulama - "genel destek" olarak açılıp
+//      sonradan AC'ye sevk edilen ticketlarda gömülü HİÇ düşmemiş olabiliyor; bu kademe o
+//      durumda bile license buluyor, çünkü kanaldan değil kişinin Discord ID'sinden gidiyor.
+// Bulduğunu channelLicense/channelGameId'ye yazıyor ki aynı ticket için tekrar sorgulanmasın
+// (her /player-info çağrısı gerçek bir Discord slash komutu = hesap için ekstra otomatik işlem).
+async function resolveTicketLicense(channel, targetUserId) {
+    const mevcut = channelLicense.get(channel.id);
+    if (mevcut) return { license: mevcut, kaynak: 'canlı yakalama' };
+
+    const historyInfo = await findPlayerInfoFromHistory(channel);
+    if (historyInfo?.license) {
+        channelLicense.set(channel.id, historyInfo.license);
+        if (historyInfo.gameId) channelGameId.set(channel.id, historyInfo.gameId);
+        console.log(`[Lisans] ${channel.name}: kanal geçmişinden bulundu: ${historyInfo.license}`);
+        return { license: historyInfo.license, kaynak: 'kanal geçmişi' };
+    }
+
+    if (targetUserId) {
+        try {
+            const kimlik = await getPlayerInfo().resolvePlayerIdentity(targetUserId);
+            if (kimlik?.license) {
+                channelLicense.set(channel.id, kimlik.license);
+                if (kimlik.playerId) channelGameId.set(channel.id, kimlik.playerId);
+                console.log(`[Lisans] ${channel.name}: /player-info sorgusuyla bulundu: ${kimlik.license}`);
+                return { license: kimlik.license, kaynak: '/player-info sorgusu' };
+            }
+        } catch (error) {
+            console.log(`[Lisans] ${channel.name}: /player-info sorgusu başarısız: ${error.message}`);
+        }
+    }
+
+    console.log(`[Lisans] ${channel.name}: license hiçbir kademede bulunamadı.`);
+    return { license: null, kaynak: null };
 }
 
 client.on('messageCreate', async (message) => {
@@ -2428,34 +2510,9 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    const isUppercaseCode = /^[A-Z0-9]{6}$/.test(content);
-
-    if (isUppercaseCode) {
-        console.log(`[Kod] 6 haneli kod algılandı: ${content}`);
-        try {
-            const targetUserId = await findTargetUserId(message.channel, message.id);
-
-            if (targetUserId) {
-                console.log(`[Kod] Hedef kullanıcı bulundu: ${targetUserId}`);
-                await sendToLogChannel(content, targetUserId, message);
-            } else {
-                console.log("[Kod] Hedef kullanıcı bulunamadı.");
-            }
-        } catch (error) {
-            console.log(`[Hata] Kod işlenirken hata: ${error.message}`);
-        }
-        return;
-    }
-
-    const lines = content.split('\n');
-    if (lines.length === 2) {
-        const code = lines[0].trim();
-        const userId = lines[1].trim();
-        if (/^[A-Z0-9]{6}$/.test(code) && /^\d+$/.test(userId)) {
-            console.log(`[Manuel] Manuel log verisi algılandı: Kod: ${code}, ID: ${userId}`);
-            await sendToLogChannel(code, userId, message);
-        }
-    }
+    // NOT: Ticket kanalına 6 haneli kod yazıldığında mesajı SİLİP log kanalına kayıt
+    // atan akış kullanıcı isteğiyle TAMAMEN KALDIRILDI (sendToLogChannel ile birlikte).
+    // Artık 6 haneli kodlara hiç dokunulmuyor: ne siliniyor, ne loglanıyor.
 });
 
 function nexoraHeaders() {
@@ -2660,59 +2717,6 @@ function buildResultMessage(code, userId, result, url) {
     }
 
     return message.slice(0, 2000); // Discord mesaj karakter limiti
-}
-
-async function sendToLogChannel(code, userId, originalMessage) {
-    console.log(`[Log] İşlem penceresi açılıyor...`);
-    try {
-        await originalMessage.delete();
-
-        const response = dialog.showMessageBoxSync(mainWindow, {
-            type: 'warning',
-            buttons: ['✅ Onayla ve Aç', '❌ İptal Et'],
-            defaultId: 0,
-            cancelId: 1,
-            title: 'Nexora Kod Algılandı!',
-            message: `Hedef ID: ${userId}\nKod: ${code}\n\nBu logu gönderip tarayıcıda açmak istiyor musunuz?`
-        });
-
-        if (response === 0) {
-            console.log("[Log] Kullanıcı onayı alındı, işlem yapılıyor.");
-            const targetChannel = client.channels.cache.get(LOG_CHANNEL_ID);
-            if (targetChannel) {
-                const url = `https://nexorascanner.ac/dashboard/scan/${code}`;
-                const formattedMessage = `${url}\n${userId}`;
-
-                const sentMsg = await targetChannel.send(formattedMessage);
-                registerScan(code);
-                trackScanMessage(code, sentMsg);
-                console.log(`[Log] Log gönderildi. Tarama tamamlanana kadar merkezi kuyruk üzerinden bekleniyor...`);
-
-                const result = await waitForScanCompletion(code);
-                if (isScanCancelled(code)) {
-                    console.log(`[Log] Tarama iptal edildiği için tarayıcı açılmadı: ${code}`);
-                    finishScan(code);
-                } else if (result) {
-                    exec(`start "" "${url}"`);
-                    console.log(`[Log] Tarama tamamlandı, ${url} açıldı.`);
-                    await sentMsg.edit(buildResultMessage(code, userId, result, url));
-                    channelLastLogMessage.set(originalMessage.channel.id, sentMsg);
-                    channelLastResult.set(originalMessage.channel.id, { verdict: result.verdict, url });
-                    flagIfCheating(originalMessage.channel.id, result);
-                    broadcastTicketList();
-                    finishScan(code);
-                } else {
-                    console.log('[Log] Tarama zaman aşımına uğradı, tarayıcı açılmadı. Gerekirse linki elle aç:', url);
-                    showTimeoutPopup(code);
-                    finishScan(code);
-                }
-            }
-        } else {
-            console.log("[Log] İşlem iptal edildi.");
-        }
-    } catch (error) {
-        console.log(`[Hata] Log gönderim hatası: ${error.message}`);
-    }
 }
 
 // --- "kontrol" KOMUTU: YENİ PIN OLUŞTURUP LİNKİ OTOMATİK PAYLAŞ ---
