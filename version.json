@@ -1,4 +1,4 @@
 {
-  "version": "1.28.0",
-  "changelog": "- DÜZELTME: Discord bir hesaptan işlem tamamlamasını istediğinde (doğrulama, şartlar, güvenlik kontrolü) panel sonsuza kadar 'bağlanıyor' durumunda kalıyordu\n- Sebebi: Discord eksik bir oturum paketi gönderiyor, kütüphane çöküyor ve sunucular hiç yüklenmiyor, 'ready' olayı hiç ateşlenmiyordu\n- Artık panel bu durumu atlatıp normal çalışıyor; ekranda ne yapman gerektiğini söyleyen bir uyarı çıkıyor"
+  "version": "1.29.0",
+  "changelog": "- YENİ: Ayarlar'dan uygulamanın adını ve simgesini istediğin gibi değiştirebilirsin\n- Ad pencere başlığında, görev çubuğunda ve panelin üstünde görünür\n- Simge için PNG/JPG/ICO/WEBP seçilebilir; seçilen görsel uygulama klasörüne kopyalanır\n- Tek tıkla varsayılana dönülebilir\n- NOT: .exe dosyasının kendi adı ve gömülü simgesi değişmez (pakete gömülü), dosyayı elle yeniden adlandırabilirsin"
 }
