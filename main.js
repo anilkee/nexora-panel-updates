@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.26.0';
+const CURRENT_VERSION = '1.27.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 // GÜVENLİK - BURAYA TOKEN GÖMME: bu dosya paketlenen uygulamanın içinde düz metin olarak
@@ -118,16 +118,34 @@ const UPDATE_FILES = ['main.js', 'index.html', 'renderer.js', 'mobile.html', 'se
 const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000; // periyodik kontrol - 15 dakikada bir
 
 async function fetchUpdateRepoFile(filePath) {
+    const url = `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/contents/${filePath}`;
     const headers = {
         'Accept': 'application/vnd.github.v3.raw',
         'User-Agent': 'NexoraPanel-Updater'
     };
-    // Token sadece varsa ekleniyor - public repoda kimliksiz istek zaten çalışıyor.
-    if (UPDATE_REPO_TOKEN) headers['Authorization'] = `Bearer ${UPDATE_REPO_TOKEN}`;
-    const res = await fetch(
-        `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/contents/${filePath}`,
-        { headers }
-    );
+
+    // Token varsa ÖNCE onunla deneniyor, ama BAŞARISIZ OLURSA tokensiz tekrar deneniyor.
+    //
+    // Bu geri düşüş hayati: GitHub, depo PUBLIC olsa bile GEÇERSİZ bir kimlik gönderen isteğe
+    // 401 dönüyor. Eski sürümlerde okuma tokeni koda gömülüydü; o token iptal edildiğinde
+    // dağıtılmış her kopya "Authorization" başlığı göndermeye devam etti, 401 aldı ve
+    // GÜNCELLEME ALAMAZ HALE GELDİ - kendi kendini de toparlayamadı, çünkü düzeltme ancak
+    // güncellemeyle gelebilirdi. Kullanıcı bunu "sıfırdan indirince güncelleme almıyor"
+    // diye bildirdi. Artık token çürükse sessizce tokensiz yola devam ediliyor.
+    if (UPDATE_REPO_TOKEN) {
+        try {
+            const res = await fetch(url, { headers: { ...headers, Authorization: `Bearer ${UPDATE_REPO_TOKEN}` } });
+            if (res.ok) return res.text();
+            // 401/403 dışındaki hatalar (404, 5xx) token ile ilgili değil - tokensiz denemek
+            // bir şeyi değiştirmez, olduğu gibi bildir.
+            if (res.status !== 401 && res.status !== 403) throw new Error(`HTTP ${res.status}`);
+            console.log(`[Güncelleme] Gömülü token geçersiz (HTTP ${res.status}) - tokensiz deneniyor.`);
+        } catch (error) {
+            if (!/HTTP 40[13]/.test(error.message)) throw error;
+        }
+    }
+
+    const res = await fetch(url, { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.text();
 }
