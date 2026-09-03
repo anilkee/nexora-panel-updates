@@ -1,4 +1,4 @@
 {
-  "version": "1.23.0",
-  "changelog": "- Kontrol Red artık otomatik /fg offline-ban atıyor (ticket kanalından, sebep: \"kontrol red -<kullanıcı>\")\n- Yönlendirilmiş ticketlarda (genel destekten AC'ye sevk edilen) license bulunamama sorunu düzeltildi\n- Lisans artık üç kademeli aranıyor: önbellek -> kanal geçmişi (iki uçtan) -> /player-info sorgusu\n- 6 haneli kod yazınca mesajı silip log tutma akışı tamamen kaldırıldı\n- Ayarlar'daki ses kaydırıcısının kutusundan 4px taşması düzeltildi"
+  "version": "1.24.0",
+  "changelog": "- Sohbet ve denetim kaydı anahtarları artık config.env'den okunuyor (koda gömülü değil)\n- ÖNEMLİ: config.env'ine CHAT_SERVER_SECRET ve BOT_LOG_SECRET satırlarını eklemen gerekiyor, yoksa sohbet ve denetim kaydı çalışmaz (panel açılışta hatırlatıyor)\n- Güncelleme deposu artık public, güncelleme çekmek için token gerekmiyor\n- Eksik anahtar durumunda ticket/kontrol/ban akışları normal çalışmaya devam ediyor"
 }
