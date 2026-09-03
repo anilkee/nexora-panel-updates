@@ -1,4 +1,4 @@
 {
-  "version": "1.26.0",
-  "changelog": "- YENİ: 'Geçmiş Aramalar' sekmesi - Kimlik Sorgula'da aradığın herkes otomatik kaydediliyor\n- Listeden birden fazla kişi seçip toplu AC Çağır / fg ban / fg offline-ban yapılabiliyor\n- Toplu işlem öncesi onay penceresi çıkıyor (kaç kişi, hangi işlem, kimler, tahmini süre)\n- Komutlar arasında 2.5 saniye bekleniyor - arka arkaya hızlı komut hesap güvenliği riski\n- İsim, oyun içi ID, Discord ID ve license ile filtreleme; geçmiş panel kapansa da kalıyor"
+  "version": "1.27.0",
+  "changelog": "- KRİTİK DÜZELTME: eski sürümlerde koda gömülü olan (artık iptal edilmiş) GitHub tokeni yüzünden güncelleme sonsuza kadar başarısız oluyordu\n- GitHub, depo public olsa bile geçersiz kimlik gönderen isteğe 401 dönüyor; artık token çürükse otomatik olarak tokensiz tekrar deneniyor\n- Bu yüzden 'sıfırdan kurunca güncelleme almıyor' sorunu bir daha yaşanmayacak"
 }
