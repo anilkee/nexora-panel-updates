@@ -56,7 +56,7 @@ process.on('uncaughtException', (error) => {
     console.log(`[YAKALANMAMIŞ İSTİSNA] ${error?.stack || error}`);
 });
 
-const { app, BrowserWindow, dialog, ipcMain, shell, Notification } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, Notification, nativeImage } = require('electron');
 
 // Aynı anda birden fazla kopya açılınca ikincisi mobil sunucunun portunu (3939)
 // alamayıp çöküyordu (EADDRINUSE). Tek örnek kilidiyle ikinci açılışı tamamen
@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.28.0';
+const CURRENT_VERSION = '1.29.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 // GÜVENLİK - BURAYA TOKEN GÖMME: bu dosya paketlenen uygulamanın içinde düz metin olarak
@@ -251,6 +251,100 @@ async function findTargetUserId(channel, excludeMessageId) {
     }
     return null;
 }
+
+// --- UYGULAMA GÖRÜNÜMÜ (ad + simge) ---
+// Kullanıcı isteği: herkes uygulamanın adını ve simgesini kendi istediği gibi değiştirebilsin.
+// Değiştirilebilenler: pencere/görev çubuğu başlığı ve simgesi + panel içindeki başlık ve logo.
+// DEĞİŞTİRİLEMEYEN: .exe dosyasının kendi adı ve içine gömülü simge - onlar paketleme
+// zamanında belirleniyor, çalışırken değiştirilemez (dosyayı elle yeniden adlandırmak gerekir).
+const DEFAULT_APP_NAME = 'Nexora Kontrol Merkezi';
+const CUSTOM_ICON_FILE = 'custom-icon.png'; // kullanıcının seçtiği görsel buraya KOPYALANIYOR
+const CUSTOM_ICON_PATH = path.join(__dirname, CUSTOM_ICON_FILE);
+
+let appName = process.env.APP_NAME || DEFAULT_APP_NAME;
+// Simge dosyası silinmiş olabilir (kullanıcı elle sildi, klasör taşındı) - her okumada varlığı
+// kontrol ediliyor, yoksa sessizce varsayılana dönülüyor.
+function customIconVarMi() {
+    try { return fs.existsSync(CUSTOM_ICON_PATH); } catch (error) { return false; }
+}
+
+function currentAppearance() {
+    return {
+        name: appName,
+        // Renderer'a önbelleği atlatan bir sorgu ekiyle veriliyor; aynı dosya adına yeni görsel
+        // yazıldığında tarayıcı eskisini göstermesin diye.
+        iconFile: customIconVarMi() ? CUSTOM_ICON_FILE + '?v=' + Date.now() : null,
+        defaultName: DEFAULT_APP_NAME,
+    };
+}
+
+function applyAppearance() {
+    if (!mainWindow) return;
+    mainWindow.setTitle(appName);
+    if (customIconVarMi()) {
+        try {
+            const img = nativeImage.createFromPath(CUSTOM_ICON_PATH);
+            if (!img.isEmpty()) mainWindow.setIcon(img);
+        } catch (error) {
+            console.log(`[Görünüm] Simge uygulanamadı: ${error.message}`);
+        }
+    }
+    mainWindow.webContents.send('appearance', currentAppearance());
+}
+
+ipcMain.on('request-appearance', (event) => {
+    if (mainWindow) mainWindow.webContents.send('appearance', currentAppearance());
+});
+
+ipcMain.on('save-app-name', (event, yeniAd) => {
+    const temiz = String(yeniAd || '').trim().slice(0, 60);
+    appName = temiz || DEFAULT_APP_NAME;
+    // Boşsa config'e yazmıyoruz - anahtar silinince varsayılan geri geliyor.
+    saveConfigValue('APP_NAME', temiz || '');
+    applyAppearance();
+    console.log(`[Görünüm] Uygulama adı: ${appName}`);
+});
+
+ipcMain.on('pick-app-icon', async (event) => {
+    if (!mainWindow) return;
+    const secim = await dialog.showOpenDialog(mainWindow, {
+        title: 'Uygulama simgesi seç',
+        properties: ['openFile'],
+        filters: [{ name: 'Görsel', extensions: ['png', 'jpg', 'jpeg', 'ico', 'webp'] }],
+    });
+    if (secim.canceled || !secim.filePaths[0]) return;
+    try {
+        // Seçilen dosya geçici bir konumda olabilir (indirilenler, USB) - uygulama klasörüne
+        // KOPYALANIYOR ki kaynak silinse/taşınsa bile simge kalıcı olsun.
+        const img = nativeImage.createFromPath(secim.filePaths[0]);
+        if (img.isEmpty()) throw new Error('Görsel okunamadı (bozuk ya da desteklenmeyen biçim).');
+        fs.writeFileSync(CUSTOM_ICON_PATH, img.toPNG());
+        applyAppearance();
+        console.log(`[Görünüm] Simge güncellendi: ${secim.filePaths[0]}`);
+    } catch (error) {
+        console.log(`[Hata] Simge ayarlanamadı: ${error.message}`);
+        dialog.showMessageBox(mainWindow, {
+            type: 'error', title: 'Simge Ayarlanamadı', message: error.message, buttons: ['Tamam'],
+        });
+    }
+});
+
+ipcMain.on('reset-appearance', (event) => {
+    appName = DEFAULT_APP_NAME;
+    saveConfigValue('APP_NAME', '');
+    try { if (customIconVarMi()) fs.unlinkSync(CUSTOM_ICON_PATH); } catch (error) {
+        console.log(`[Görünüm] Simge silinemedi: ${error.message}`);
+    }
+    if (mainWindow) {
+        mainWindow.setTitle(appName);
+        try {
+            const img = nativeImage.createFromPath(path.join(__dirname, 'icon.ico'));
+            if (!img.isEmpty()) mainWindow.setIcon(img);
+        } catch (error) { /* varsayilan simge yuklenemezse pencere mevcut simgesiyle kalir */ }
+    }
+    applyAppearance();
+    console.log('[Görünüm] Varsayılana döndürüldü.');
+});
 
 let mainWindow;
 const client = new Client({ checkUpdate: false });
@@ -1777,7 +1871,7 @@ function startApp() {
     mainWindow = new BrowserWindow({
         width: PANEL_LAYOUT_SIZES[panelLayout].width,
         height: PANEL_LAYOUT_SIZES[panelLayout].height,
-        title: "Nexora Kontrol Merkezi",
+        title: appName,
         autoHideMenuBar: true,
         resizable: false,
         // Native Windows başlık çubuğu (siyah, panelden kopuk duran şerit) kaldırılıp
@@ -1785,13 +1879,14 @@ function startApp() {
         // kendi küçült/kapat butonları olan) geçiyor - kullanıcı isteğiyle "üst kısmı
         // panelle birleştir" (bkz. IPC: window-minimize / window-close).
         frame: false,
-        icon: path.join(__dirname, 'icon.ico'),
+        icon: customIconVarMi() ? CUSTOM_ICON_PATH : path.join(__dirname, 'icon.ico'),
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false
         }
     });
     mainWindow.loadFile('index.html');
+    mainWindow.webContents.once('did-finish-load', () => applyAppearance());
 
     mobileServer.listen(MOBILE_PORT, '0.0.0.0', () => {
         const mobileUrl = getMobileUrl();
