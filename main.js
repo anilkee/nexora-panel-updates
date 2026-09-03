@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.25.0';
+const CURRENT_VERSION = '1.26.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 // GÜVENLİK - BURAYA TOKEN GÖMME: bu dosya paketlenen uygulamanın içinde düz metin olarak
@@ -589,8 +589,159 @@ ipcMain.on('request-open-at-login-status', (event) => {
     if (mainWindow) mainWindow.webContents.send('open-at-login-status', openAtLoginEnabled);
 });
 
+// --- GEÇMİŞ ARAMALAR ---
+// Her başarılı kimlik sorgusu diske yazılıyor; panel kapansa da kalıyor. Amaç: aynı kişileri
+// tekrar tekrar aramak yerine listeden seçip toplu işlem yapabilmek (kullanıcı isteği).
+const LOOKUP_HISTORY_PATH = path.join(__dirname, 'lookup-history.json');
+const LOOKUP_HISTORY_MAX = 300;
+
+// Toplu işlemde komutlar ARALIKLA gönderiliyor. Bu bir performans tercihi DEĞİL, hesap
+// güvenliği meselesi: arka arkaya hızlı komut, Discord'un otomatik davranış tespitini
+// tetikleyen ana desen. 2026-08-18'de hesap bu yüzden üç kez kapandı.
+const BULK_ACTION_DELAY_MS = 2500;
+
+function readLookupHistory() {
+    try {
+        const ham = fs.readFileSync(LOOKUP_HISTORY_PATH, 'utf8');
+        const dizi = JSON.parse(ham);
+        return Array.isArray(dizi) ? dizi : [];
+    } catch (error) {
+        return []; // dosya yok / bozuk - bos gecmisle devam, kullaniciyi rahatsiz etme
+    }
+}
+
+function writeLookupHistory(dizi) {
+    try {
+        fs.writeFileSync(LOOKUP_HISTORY_PATH, JSON.stringify(dizi, null, 1));
+    } catch (error) {
+        console.log(`[Geçmiş] Kaydedilemedi: ${error.message}`);
+    }
+}
+
+// Aynı kişi tekrar arandığında YENİ satır eklenmiyor, mevcut kayıt güncellenip en üste
+// taşınıyor. Eşleştirme license -> discord -> playerId sırasıyla (license en kalıcı olanı).
+function lookupKey(k) {
+    return k.license || (k.discord ? 'd:' + k.discord : null) || (k.playerId ? 'p:' + k.playerId : null);
+}
+
+function recordLookup(result) {
+    if (!result) return;
+    const anahtar = lookupKey(result);
+    if (!anahtar) return;
+    const gecmis = readLookupHistory().filter((k) => lookupKey(k) !== anahtar);
+    gecmis.unshift({
+        playerId: result.playerId || null,
+        name: result.name || null,
+        steam: result.steam || null,
+        discord: result.discord || null,
+        license: result.license || null,
+        online: !!result.online,
+        banned: !!result.banned,
+        sorgulanma: new Date().toISOString(),
+    });
+    writeLookupHistory(gecmis.slice(0, LOOKUP_HISTORY_MAX));
+}
+
+ipcMain.on('request-lookup-history', (event) => {
+    if (mainWindow) mainWindow.webContents.send('lookup-history', readLookupHistory());
+});
+
+ipcMain.on('clear-lookup-history', (event) => {
+    writeLookupHistory([]);
+    if (mainWindow) mainWindow.webContents.send('lookup-history', []);
+});
+
+// Toplu işlem: seçilen kayıtlara sırayla AC çağır / fg ban / fg offline-ban uygular.
+// ÖNCE onay penceresi gösteriliyor (kullanıcı isteği: "atmadan önce pop up ile uyar").
+async function performBulkAction({ tip, kayitlar, sebep, count }) {
+    const secilenler = Array.isArray(kayitlar) ? kayitlar : [];
+    if (secilenler.length === 0) return { success: false, message: 'Hiç kayıt seçilmedi.' };
+
+    const etiket = tip === 'ac-call' ? 'AC Çağır' : (tip === 'ban' ? '/fg ban (online)' : '/fg offline-ban');
+    if ((tip === 'ban' || tip === 'offline-ban') && !String(sebep || '').trim()) {
+        return { success: false, message: 'Ban sebebi boş bırakılamaz.' };
+    }
+
+    // --- ONAY PENCERESİ ---
+    const isimler = secilenler.slice(0, 15).map((k) => '• ' + (k.name || k.playerId || k.discord || k.license)).join('\n');
+    const fazlasi = secilenler.length > 15 ? `\n… ve ${secilenler.length - 15} kişi daha` : '';
+    const sureSn = Math.round((secilenler.length * BULK_ACTION_DELAY_MS) / 1000);
+    const detay = [
+        `İşlem: ${etiket}`,
+        (tip !== 'ac-call' ? `Sebep: ${sebep}` : `Çağrı sayısı: ${count || 1}x`),
+        `Kişi sayısı: ${secilenler.length}`,
+        `Tahmini süre: ~${sureSn} saniye (komutlar arasında ${BULK_ACTION_DELAY_MS / 1000} sn bekleniyor)`,
+        '',
+        isimler + fazlasi,
+    ].join('\n');
+
+    const cevap = dialog.showMessageBoxSync(mainWindow, {
+        type: 'warning',
+        buttons: [`Evet, ${secilenler.length} kişiye uygula`, 'İptal'],
+        defaultId: 1,   // varsayilan IPTAL - yanlislikla Enter'a basilirsa bir sey olmasin
+        cancelId: 1,
+        title: 'Toplu İşlem Onayı',
+        message: `${secilenler.length} kişiye "${etiket}" uygulanacak`,
+        detail: detay,
+    });
+    if (cevap !== 0) return { success: false, message: 'İptal edildi.', iptal: true };
+
+    // --- UYGULAMA ---
+    const sonuclar = [];
+    for (let i = 0; i < secilenler.length; i++) {
+        const k = secilenler[i];
+        const ad = k.name || k.playerId || k.discord || k.license;
+        if (mainWindow) {
+            mainWindow.webContents.send('bulk-action-progress', {
+                sira: i + 1, toplam: secilenler.length, ad,
+            });
+        }
+        try {
+            let r;
+            if (tip === 'ac-call') {
+                r = await performAcCall({
+                    discord: k.discord, license: k.license, playerId: k.playerId,
+                    name: k.name, count: count || 1, force: true,
+                });
+            } else {
+                r = await performLookupFgBan({
+                    type: tip === 'ban' ? 'ban' : 'offline-ban',
+                    playerId: k.playerId, license: k.license, reason: sebep,
+                });
+            }
+            sonuclar.push({ ad, success: !!r.success, message: r.message });
+        } catch (error) {
+            sonuclar.push({ ad, success: false, message: error.message });
+        }
+        // Son kisiden sonra bekleme - gereksiz gecikme olmasin
+        if (i < secilenler.length - 1) {
+            await new Promise((r) => setTimeout(r, BULK_ACTION_DELAY_MS));
+        }
+    }
+
+    const basarili = sonuclar.filter((r) => r.success).length;
+    botLog('toplu-islem', {
+        islem: etiket,
+        'kisi sayisi': secilenler.length,
+        basarili,
+        basarisiz: secilenler.length - basarili,
+        sebep: sebep || '-',
+    });
+    return {
+        success: basarili > 0,
+        message: `${etiket}: ${basarili}/${secilenler.length} başarılı.`,
+        sonuclar,
+    };
+}
+
+ipcMain.on('bulk-action', async (event, payload) => {
+    const result = await performBulkAction(payload || {});
+    if (mainWindow) mainWindow.webContents.send('bulk-action-result', result);
+});
+
 ipcMain.on('lookup-player', async (event, query) => {
     const result = await getPlayerInfo().resolvePlayerIdentity(query);
+    recordLookup(result); // gecmis sekmesinde listelensin diye diske yaziliyor
     botLog('lookup', { sorgu: query, bulundu: result ? (result.name || result.playerId || 'evet') : 'hayır' });
     if (mainWindow) mainWindow.webContents.send('lookup-player-result', { query, result });
 });
