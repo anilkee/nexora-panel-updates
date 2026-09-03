@@ -1566,3 +1566,49 @@ ipcRenderer.on('bulk-action-result', (event, result) => {
         ipcRenderer.send('request-lookup-history');
     }
 });
+
+
+// ============================ UYGULAMA ADI VE SİMGESİ ============================
+// Kullanıcı isteği: herkes uygulamanın adını/simgesini kendi istediği gibi değiştirebilsin.
+// Buradan sadece istek gönderiliyor; dosya kopyalama, config'e yazma ve pencereye uygulama
+// main.js tarafında (dosya sistemine ve BrowserWindow'a erişim orada).
+
+const appNameInput = document.getElementById('appNameInput');
+const appIconPreview = document.getElementById('appIconPreview');
+
+document.getElementById('appNameSaveBtn').onclick = () => {
+    ipcRenderer.send('save-app-name', appNameInput.value);
+};
+appNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('appNameSaveBtn').click();
+});
+document.getElementById('appIconPickBtn').onclick = () => ipcRenderer.send('pick-app-icon');
+document.getElementById('appearanceResetBtn').onclick = () => {
+    if (!confirm('Uygulama adı ve simgesi varsayılana dönsün mü?')) return;
+    ipcRenderer.send('reset-appearance');
+};
+
+ipcRenderer.on('appearance', (event, gorunum) => {
+    if (!gorunum) return;
+
+    // Ayarlardaki kutu: varsayılandaysa BOŞ bırakılıyor, yer tutucu zaten varsayılanı gösteriyor.
+    // Böylece kullanıcı "burada bir şey yazıyor, silsem ne olur" ikilemine düşmüyor.
+    if (document.activeElement !== appNameInput) {
+        appNameInput.value = gorunum.name === gorunum.defaultName ? '' : gorunum.name;
+    }
+
+    // Panelin üstündeki başlık - sürüm etiketini KORUYARAK değiştiriliyor.
+    const h1 = document.querySelector('.header-text h1');
+    if (h1) {
+        const ver = h1.querySelector('.ver');
+        h1.textContent = gorunum.name;
+        if (ver) h1.appendChild(ver);
+    }
+
+    const kaynak = gorunum.iconFile || 'logo.png';
+    const logo = document.querySelector('.logo-box img');
+    if (logo) logo.src = kaynak;
+    if (appIconPreview) appIconPreview.src = kaynak;
+});
+
+ipcRenderer.send('request-appearance');
