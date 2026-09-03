@@ -97,10 +97,15 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.23.0';
+const CURRENT_VERSION = '1.24.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
-const UPDATE_REPO_TOKEN = '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';
+// GÜVENLİK - BURAYA TOKEN GÖMME: bu dosya paketlenen uygulamanın içinde düz metin olarak
+// dağıtılıyor (resources/app/main.js, asar yok), yani gömülen her token uygulamayı alan
+// herkesin eline geçiyor. Depo public olduğu sürece istemcinin token'a ihtiyacı yok -
+// kimliksiz istek çalışır. Depo tekrar private yapılırsa NEXORA_UPDATE_TOKEN ortam
+// değişkeni tanımlanır; tanımlıysa istek onunla imzalanır, değilse kimliksiz gider.
+const UPDATE_REPO_TOKEN = process.env.NEXORA_UPDATE_TOKEN || '';
 // DİKKAT - YENİ DOSYA EKLERKEN İKİ AŞAMALI YAYIN ŞART: Bu liste güncelleyicinin İNDİRECEĞİ
 // dosyaları belirliyor ve her istemci KENDİ SÜRÜMÜNDEKİ listeyi kullanıyor. Yani listeye yeni
 // bir dosya eklenip AYNI sürümde main.js o dosyayı require ederse, ESKİ sürümdeki bir istemci
@@ -113,15 +118,15 @@ const UPDATE_FILES = ['main.js', 'index.html', 'renderer.js', 'mobile.html', 'se
 const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000; // periyodik kontrol - 15 dakikada bir
 
 async function fetchUpdateRepoFile(filePath) {
+    const headers = {
+        'Accept': 'application/vnd.github.v3.raw',
+        'User-Agent': 'NexoraPanel-Updater'
+    };
+    // Token sadece varsa ekleniyor - public repoda kimliksiz istek zaten çalışıyor.
+    if (UPDATE_REPO_TOKEN) headers['Authorization'] = `Bearer ${UPDATE_REPO_TOKEN}`;
     const res = await fetch(
         `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/contents/${filePath}`,
-        {
-            headers: {
-                'Authorization': `Bearer ${UPDATE_REPO_TOKEN}`,
-                'Accept': 'application/vnd.github.v3.raw',
-                'User-Agent': 'NexoraPanel-Updater'
-            }
-        }
+        { headers }
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.text();
@@ -1559,6 +1564,32 @@ const mobileServer = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: 'Bulunamadı' }));
 });
 
+// v1.24.0'da CHAT_SERVER_SECRET ve BOT_LOG_SECRET koddan config.env'e taşındı (depo public
+// olduğu için koda gömülü bırakılamazdı). Eski kurulumlarda bu iki satır config.env'de YOK -
+// sohbet/istatistik/denetim kaydı sessizce susar ve kullanıcı nedenini anlayamaz. Bu yüzden
+// açılışta bir kez, ne yapması gerektiğini AÇIKÇA söyleyen bir pencere gösteriliyor.
+function eksikSecretUyarisi() {
+    const eksik = [];
+    if (!CHAT_SERVER_SECRET) eksik.push('CHAT_SERVER_SECRET');
+    if (!BOT_LOG_SECRET) eksik.push('BOT_LOG_SECRET');
+    if (eksik.length === 0) return;
+    console.log(`[Kurulum] config.env'de eksik: ${eksik.join(', ')} - sohbet/denetim kaydı devre dışı.`);
+    if (!mainWindow) return;
+    dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        title: 'Eksik Ayar',
+        message: 'Sohbet ve denetim kaydı devre dışı',
+        detail: `config.env dosyasına şu satır(lar) eklenmeli:
+
+${eksik.map((k) => k + '=<değer>').join('\n')}
+
+Değerleri panel sahibinden iste. Panelin geri kalanı (ticket, kontrol, ban) normal çalışmaya devam ediyor.
+
+Dosya: ${CONFIG_ENV_PATH}`,
+        buttons: ['Tamam'],
+    });
+}
+
 function startApp() {
     console.log("[Sistem] Nexora Kontrol Merkezi başlatılıyor...");
     validateNexoraApiKey();
@@ -1583,6 +1614,7 @@ function startApp() {
         }
     });
     mainWindow.loadFile('index.html');
+    mainWindow.webContents.once('did-finish-load', () => eksikSecretUyarisi());
 
     mobileServer.listen(MOBILE_PORT, '0.0.0.0', () => {
         const mobileUrl = getMobileUrl();
@@ -1919,7 +1951,11 @@ ipcMain.on('request-ticket-detail', async (event, channelId) => {
 // (avatar+isim) zaten giriş yapılmış Discord hesabından okunuyor ama MESAJLAŞMANIN KENDİSİ
 // Discord API'sini hiç kullanmıyor - sunucu sadece bağlı herkese "kim, ne yazdı" broadcast ediyor.
 const CHAT_SERVER_URL = 'ws://185.211.100.43:28418';
-const CHAT_SERVER_SECRET = '2b3a9e6dec63450c4c13dbf10bad0fc283f1a2e578baeef5';
+// DEPO PUBLIC OLDUĞU İÇİN BU SECRET ARTIK KODA GÖMÜLMÜYOR - config.env'den okunuyor.
+// Eskiden burada düz metin duruyordu; depo herkese açık hale gelince VDS'in sohbet/istatistik
+// ucu (28418) internetten taklit edilebilir olurdu. Eksikse sohbet+istatistik sessizce
+// devre dışı kalır, panelin GERİ KALANI normal çalışmaya devam eder.
+const CHAT_SERVER_SECRET = process.env.CHAT_SERVER_SECRET || '';
 const CHAT_RECONNECT_DELAY_MS = 5000;
 // Bağlantı normal kapanırsa ('close' event) zaten hemen yeniden deneniyor - ama TCP bağlantısı
 // bazen (ör. laptop uyku modundan çıkışı, ağ kesintisi) hiçbir 'close'/'error' ateşlemeden
@@ -1942,6 +1978,8 @@ let lastChatPresence = [];
 
 function connectChatSocket() {
     if (!client.user) return; // Discord'a henüz giriş yapılmadı, isim/avatar hazır değil
+    // Secret yoksa bağlanmayı hiç deneme: sunucu reddeder ve sonsuz yeniden bağlanma döngüsüne gireriz.
+    if (!CHAT_SERVER_SECRET) return;
     if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
 
     let socket;
@@ -2075,11 +2113,14 @@ const STATS_EVENT_TIMEOUT_MS = 3000;
 // yazamazlar. Bu yüzden kayıtlar VDS'e HTTP ile bildiriliyor, VDS de kullanıcının hesabıyla yazıyor.
 // reportStatEvent ile AYNI desen: fire-and-forget, hata YUTULUR, asıl işlemi ASLA bloklamaz.
 const BOT_LOG_URL = 'http://185.211.100.43:28419';
-const BOT_LOG_SECRET = 'a7f2c91e4b6d803f5e1a2c8b9d4f6072e3a5c1b8d9f04e27';
+// Aynı gerekçe (bkz. CHAT_SERVER_SECRET): koda gömülmüyor, config.env'den geliyor.
+// Eksikse denetim kaydı gönderilmez, asıl işlemler (ban/kontrol/claim) etkilenmez.
+const BOT_LOG_SECRET = process.env.BOT_LOG_SECRET || '';
 const BOT_LOG_TIMEOUT_MS = 3000;
 
 function botLog(tur, detay, options = {}) {
     if (!client.user) return;
+    if (!BOT_LOG_SECRET) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BOT_LOG_TIMEOUT_MS);
     fetch(`${BOT_LOG_URL}/log`, {
@@ -2100,6 +2141,7 @@ function botLog(tur, detay, options = {}) {
 
 function reportStatEvent(type) {
     if (!client.user) return;
+    if (!CHAT_SERVER_SECRET) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), STATS_EVENT_TIMEOUT_MS);
     fetch(`${STATS_SERVER_URL}/stats/event`, {
