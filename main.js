@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.24.0';
+const CURRENT_VERSION = '1.25.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 // GÜVENLİK - BURAYA TOKEN GÖMME: bu dosya paketlenen uygulamanın içinde düz metin olarak
@@ -1564,32 +1564,6 @@ const mobileServer = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: 'Bulunamadı' }));
 });
 
-// v1.24.0'da CHAT_SERVER_SECRET ve BOT_LOG_SECRET koddan config.env'e taşındı (depo public
-// olduğu için koda gömülü bırakılamazdı). Eski kurulumlarda bu iki satır config.env'de YOK -
-// sohbet/istatistik/denetim kaydı sessizce susar ve kullanıcı nedenini anlayamaz. Bu yüzden
-// açılışta bir kez, ne yapması gerektiğini AÇIKÇA söyleyen bir pencere gösteriliyor.
-function eksikSecretUyarisi() {
-    const eksik = [];
-    if (!CHAT_SERVER_SECRET) eksik.push('CHAT_SERVER_SECRET');
-    if (!BOT_LOG_SECRET) eksik.push('BOT_LOG_SECRET');
-    if (eksik.length === 0) return;
-    console.log(`[Kurulum] config.env'de eksik: ${eksik.join(', ')} - sohbet/denetim kaydı devre dışı.`);
-    if (!mainWindow) return;
-    dialog.showMessageBox(mainWindow, {
-        type: 'warning',
-        title: 'Eksik Ayar',
-        message: 'Sohbet ve denetim kaydı devre dışı',
-        detail: `config.env dosyasına şu satır(lar) eklenmeli:
-
-${eksik.map((k) => k + '=<değer>').join('\n')}
-
-Değerleri panel sahibinden iste. Panelin geri kalanı (ticket, kontrol, ban) normal çalışmaya devam ediyor.
-
-Dosya: ${CONFIG_ENV_PATH}`,
-        buttons: ['Tamam'],
-    });
-}
-
 function startApp() {
     console.log("[Sistem] Nexora Kontrol Merkezi başlatılıyor...");
     validateNexoraApiKey();
@@ -1614,7 +1588,6 @@ function startApp() {
         }
     });
     mainWindow.loadFile('index.html');
-    mainWindow.webContents.once('did-finish-load', () => eksikSecretUyarisi());
 
     mobileServer.listen(MOBILE_PORT, '0.0.0.0', () => {
         const mobileUrl = getMobileUrl();
@@ -1768,9 +1741,46 @@ ipcMain.on('save-setup', (event, values) => {
     app.exit();
 });
 
+// Sohbet ve denetim kaydi icin gereken iki paylasimli anahtari VDS'ten cekip config.env'e
+// yazar. Kullanicidan HICBIR islem istenmez.
+//
+// Neden koda gomulu degil: guncelleme deposu PUBLIC. Neden kullaniciya sorulmuyor: panel genis
+// bir kitleye dagitiliyor, "config.env'ine su satiri ekle" demek mumkun degil - zaten guncelleme
+// mekanizmasini tam da bunun icin yaptik.
+//
+// Guvenlik notu: bu degerler ONCEDEN de dagitilan her kopyada koda gomulu duruyordu, yani
+// uygulamayi indiren herkeste vardi - burada tutmak bir kayip DEGIL. Kazanc: yeniden dagitim
+// yapmadan VDS'ten dondurulebiliyorlar. Kotuye kullanimda yapilabilecek en fazla sey log
+// kanallarina gurultu basmak; sunucu tarafinda IP basina hiz siniri var.
+async function ensureClientSecrets() {
+    if (CHAT_SERVER_SECRET && BOT_LOG_SECRET) return;
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(`${STATS_SERVER_URL}/istemci-ayar`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const ayar = await res.json();
+        if (ayar.chatSecret && !CHAT_SERVER_SECRET) {
+            CHAT_SERVER_SECRET = ayar.chatSecret;
+            saveConfigValue('CHAT_SERVER_SECRET', ayar.chatSecret);
+        }
+        if (ayar.botLogSecret && !BOT_LOG_SECRET) {
+            BOT_LOG_SECRET = ayar.botLogSecret;
+            saveConfigValue('BOT_LOG_SECRET', ayar.botLogSecret);
+        }
+        console.log('[Ayar] İstemci anahtarları sunucudan alındı ve config.env\'e yazıldı.');
+    } catch (error) {
+        // Basarisiz olursa panel yine acilir - sadece sohbet/denetim kaydi susar, bir sonraki
+        // acilista tekrar denenir. Ticket/kontrol/ban akislari bundan ETKILENMEZ.
+        console.log(`[Ayar] İstemci anahtarları alınamadı (${error.message}) - sohbet/denetim kaydı bu oturumda devre dışı.`);
+    }
+}
+
 app.on('ready', async () => {
     await checkForUpdates(); // güncelleme varsa burada indirip yeniden başlatır, devam etmez
     await ensureAppFiles();  // eski bir sürümden gelindiyse eksik kalan dosyaları tamamlar
+    await ensureClientSecrets(); // sohbet/denetim anahtarlarını sunucudan çeker (kullanıcı hiçbir şey yapmaz)
 
     // Uygulama günlerce kapatılmadan açık kalabildiği için (herkes artık VDS'e bağlı, elle
     // yeniden başlatmaya gerek kalmıyor) SADECE açılışta değil, periyodik olarak da tekrar
@@ -1955,7 +1965,7 @@ const CHAT_SERVER_URL = 'ws://185.211.100.43:28418';
 // Eskiden burada düz metin duruyordu; depo herkese açık hale gelince VDS'in sohbet/istatistik
 // ucu (28418) internetten taklit edilebilir olurdu. Eksikse sohbet+istatistik sessizce
 // devre dışı kalır, panelin GERİ KALANI normal çalışmaya devam eder.
-const CHAT_SERVER_SECRET = process.env.CHAT_SERVER_SECRET || '';
+let CHAT_SERVER_SECRET = process.env.CHAT_SERVER_SECRET || '';
 const CHAT_RECONNECT_DELAY_MS = 5000;
 // Bağlantı normal kapanırsa ('close' event) zaten hemen yeniden deneniyor - ama TCP bağlantısı
 // bazen (ör. laptop uyku modundan çıkışı, ağ kesintisi) hiçbir 'close'/'error' ateşlemeden
@@ -2115,7 +2125,7 @@ const STATS_EVENT_TIMEOUT_MS = 3000;
 const BOT_LOG_URL = 'http://185.211.100.43:28419';
 // Aynı gerekçe (bkz. CHAT_SERVER_SECRET): koda gömülmüyor, config.env'den geliyor.
 // Eksikse denetim kaydı gönderilmez, asıl işlemler (ban/kontrol/claim) etkilenmez.
-const BOT_LOG_SECRET = process.env.BOT_LOG_SECRET || '';
+let BOT_LOG_SECRET = process.env.BOT_LOG_SECRET || '';
 const BOT_LOG_TIMEOUT_MS = 3000;
 
 function botLog(tur, detay, options = {}) {
