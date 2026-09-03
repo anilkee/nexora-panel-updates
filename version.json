@@ -1,4 +1,4 @@
 {
-  "version": "1.25.0",
-  "changelog": "- Sohbet ve denetim kaydı anahtarları artık açılışta sunucudan otomatik alınıyor\n- Kullanıcıdan hiçbir işlem istenmiyor: 1.24.0'daki config.env düzenleme adımı tamamen kalktı\n- Anahtarlar koda gömülü değil, sunucu tarafından döndürülebiliyor\n- Sunucuya ulaşılamazsa panel normal açılır, sadece sohbet/denetim kaydı o oturumda susar"
+  "version": "1.26.0",
+  "changelog": "- YENİ: 'Geçmiş Aramalar' sekmesi - Kimlik Sorgula'da aradığın herkes otomatik kaydediliyor\n- Listeden birden fazla kişi seçip toplu AC Çağır / fg ban / fg offline-ban yapılabiliyor\n- Toplu işlem öncesi onay penceresi çıkıyor (kaç kişi, hangi işlem, kimler, tahmini süre)\n- Komutlar arasında 2.5 saniye bekleniyor - arka arkaya hızlı komut hesap güvenliği riski\n- İsim, oyun içi ID, Discord ID ve license ile filtreleme; geçmiş panel kapansa da kalıyor"
 }
