@@ -227,18 +227,21 @@
            "ana görünüm" davranışı), settings VE chat ayrı tam ekran. Sidebar/list-detail'de
            ise her an sadece data-section'daki TEK bölüm görünür. */
         .section-block { display: none; }
-        body[data-layout="classic"]:not([data-section="settings"]):not([data-section="chat"]) .section-block[data-section="tickets"],
-        body[data-layout="classic"]:not([data-section="settings"]):not([data-section="chat"]) .section-block[data-section="lookup"],
-        body[data-layout="classic"]:not([data-section="settings"]):not([data-section="chat"]) .section-block[data-section="status"] { display: block; }
+        body[data-layout="classic"]:not([data-section="settings"]):not([data-section="chat"]):not([data-section="history"]) .section-block[data-section="tickets"],
+        body[data-layout="classic"]:not([data-section="settings"]):not([data-section="chat"]):not([data-section="history"]) .section-block[data-section="lookup"],
+        body[data-layout="classic"]:not([data-section="settings"]):not([data-section="chat"]):not([data-section="history"]) .section-block[data-section="status"] { display: block; }
         body[data-layout="classic"][data-section="settings"] .section-block[data-section="settings"],
+        body[data-layout="classic"][data-section="history"] .section-block[data-section="history"],
         body[data-layout="classic"][data-section="chat"] .section-block[data-section="chat"] { display: block; }
         body[data-layout="sidebar"][data-section="tickets"] .section-block[data-section="tickets"],
         body[data-layout="sidebar"][data-section="lookup"] .section-block[data-section="lookup"],
+        body[data-layout="sidebar"][data-section="history"] .section-block[data-section="history"],
         body[data-layout="sidebar"][data-section="status"] .section-block[data-section="status"],
         body[data-layout="sidebar"][data-section="chat"] .section-block[data-section="chat"],
         body[data-layout="sidebar"][data-section="settings"] .section-block[data-section="settings"],
         body[data-layout="list-detail"][data-section="tickets"] .section-block[data-section="tickets"],
         body[data-layout="list-detail"][data-section="lookup"] .section-block[data-section="lookup"],
+        body[data-layout="list-detail"][data-section="history"] .section-block[data-section="history"],
         body[data-layout="list-detail"][data-section="status"] .section-block[data-section="status"],
         body[data-layout="list-detail"][data-section="chat"] .section-block[data-section="chat"],
         body[data-layout="list-detail"][data-section="settings"] .section-block[data-section="settings"] { display: block; }
@@ -484,6 +487,27 @@
         /* margin: 0 ŞART - tarayıcı range girdisine varsayılan 2px kenar boşluğu veriyor;
            "width: 100%" ile birlikte kutusundan 4px taşmasına yol açıyordu (üç yerleşimde de
            ölçüldü). Sıfırlanınca taşma tam olarak 0 oluyor. */
+        /* GEÇMİŞ ARAMALAR */
+        .hist-toolbar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 10px; }
+        .hist-toolbar input[type="text"] { flex: 1 1 140px; min-width: 0; }
+        .hist-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: calc(var(--radius-card) - 2px); }
+        .hist-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-bottom: 1px solid var(--border-soft); }
+        .hist-row:last-child { border-bottom: 0; }
+        .hist-row:hover { background: var(--bg-panel-raise); }
+        .hist-row input[type="checkbox"] { flex: 0 0 auto; margin: 0; cursor: pointer; }
+        .hist-main { flex: 1 1 auto; min-width: 0; }
+        .hist-name { font-size: 12px; font-weight: 600; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .hist-meta { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+        .hist-tags { flex: 0 0 auto; display: flex; gap: 5px; }
+        .hist-tag { font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 999px; letter-spacing: .3px; }
+        .hist-tag.online { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+        .hist-tag.offline { background: color-mix(in srgb, var(--text-dim) 18%, transparent); color: var(--text-dim); }
+        .hist-tag.banned { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+        .hist-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+        /* flex-basis AUTO birakilirsa .primary'nin width:100%'u sizip her butonu tam
+           genislige cikariyor (alt alta diziliyorlar). Acik basis + width:auto ile yan yana
+           duruyorlar, dar panelde kendiliginden alt satira kayiyorlar. */
+        .hist-actions .primary { flex: 1 1 130px; width: auto; min-width: 0; }
         input[type="range"] { -webkit-appearance: none; width: 100%; margin: 0; height: 4px; border-radius: 3px; background: var(--border-c); outline: none; }
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
@@ -642,6 +666,7 @@
         <nav class="side-rail">
             <button class="rail-btn nav-target" data-section="tickets" type="button" aria-label="Ticketlar"><svg class="icon"><use href="#icon-ticket"></use></svg></button>
             <button class="rail-btn nav-target" data-section="lookup" type="button" aria-label="Kimlik Sorgula"><svg class="icon"><use href="#icon-search"></use></svg></button>
+            <button class="rail-btn nav-target" data-section="history" type="button" aria-label="Geçmiş Aramalar"><svg class="icon"><use href="#icon-history"></use></svg></button>
             <button class="rail-btn nav-target" data-section="status" type="button" aria-label="Durum"><svg class="icon"><use href="#icon-status"></use></svg></button>
             <button class="rail-btn nav-target" data-section="chat" type="button" aria-label="Sohbet"><svg class="icon"><use href="#icon-chat"></use></svg><span class="chat-nav-badge" style="display: none;"></span></button>
             <button class="rail-btn nav-target" data-section="settings" type="button" aria-label="Ayarlar"><svg class="icon"><use href="#icon-settings"></use></svg></button>
@@ -657,6 +682,7 @@
             <div class="ld-tabs">
                 <button class="ld-tab nav-target" data-section="tickets" type="button"><svg class="icon"><use href="#icon-ticket"></use></svg>Ticket</button>
                 <button class="ld-tab nav-target" data-section="lookup" type="button"><svg class="icon"><use href="#icon-search"></use></svg>Kimlik Sorgula</button>
+                <button class="ld-tab nav-target" data-section="history" type="button"><svg class="icon"><use href="#icon-history"></use></svg>Geçmiş</button>
                 <button class="ld-tab nav-target" data-section="status" type="button"><svg class="icon"><use href="#icon-status"></use></svg>Durum</button>
                 <button class="ld-tab nav-target" data-section="chat" type="button"><svg class="icon"><use href="#icon-chat"></use></svg>Sohbet<span class="chat-nav-badge" style="display: none;"></span></button>
                 <button class="ld-tab nav-target" data-section="settings" type="button"><svg class="icon"><use href="#icon-settings"></use></svg>Ayarlar</button>
@@ -732,6 +758,33 @@
                 <p class="hint" id="fgBanStatus" style="display: none;"></p>
 
                 <p class="hint" id="lookupEmpty" style="display: none;">Kayıt bulunamadı.</p>
+            </div>
+            </div>
+
+            <div class="section-block" data-section="history">
+            <div class="card">
+                <h2><svg class="icon"><use href="#icon-history"></use></svg>Geçmiş Aramalar</h2>
+                <div class="hist-toolbar">
+                    <input type="text" id="histSearch" placeholder="İsim, ID, license ile filtrele">
+                    <button class="ticket-btn" id="histSelectAll" type="button"><svg class="icon"><use href="#icon-check"></use></svg><span>Tümünü Seç</span></button>
+                    <button class="ticket-btn" id="histRefresh" type="button"><svg class="icon"><use href="#icon-refresh"></use></svg><span>Yenile</span></button>
+                    <button class="ticket-btn" id="histClear" type="button"><svg class="icon"><use href="#icon-trash"></use></svg><span>Temizle</span></button>
+                </div>
+                <div class="hist-list" id="histList"></div>
+                <p class="hint" id="histEmpty" style="display: none;">Henüz arama yapılmamış. Kimlik Sorgula'dan aradığın herkes buraya düşer.</p>
+                <p class="hint" id="histCount" style="display: none;"></p>
+
+                <div class="hist-actions" id="histActions" style="display: none;">
+                    <button class="primary" id="histAcCallBtn"><svg class="icon"><use href="#icon-flag"></use></svg><span class="label">AC Çağır</span></button>
+                    <button class="primary" id="histBanBtn" style="background: var(--danger);"><svg class="icon"><use href="#icon-ban"></use></svg><span class="label">fg ban (online)</span></button>
+                    <button class="primary" id="histOfflineBanBtn" style="background: var(--danger);"><svg class="icon"><use href="#icon-ban"></use></svg><span class="label">fg offline-ban</span></button>
+                </div>
+                <div id="histReasonRow" style="display: none; gap: 8px; margin-top: 10px;">
+                    <input type="text" id="histReasonInput" placeholder="Ban sebebi" style="flex: 1 1 auto; min-width: 0;">
+                    <button class="primary" id="histReasonSend" style="width: 40px; flex: 0 0 40px; padding: 0;"><svg class="icon"><use href="#icon-check"></use></svg></button>
+                    <button class="primary" id="histReasonCancel" style="width: 40px; flex: 0 0 40px; padding: 0; background: var(--border-c);"><svg class="icon"><use href="#icon-x"></use></svg></button>
+                </div>
+                <p class="hint" id="histStatus" style="display: none;"></p>
             </div>
             </div>
 
@@ -965,6 +1018,7 @@
             <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.5 6.5a8 8 0 1 0 11 0"/></symbol>
             <symbol id="icon-layout" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16"/></symbol>
             <symbol id="icon-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4v-4H4z"/><path d="M8 10h8M8 13h5"/></symbol>
+            <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4v4h4"/><path d="M12 7.5V12l3 2"/></symbol>
         </defs>
     </svg>
 
