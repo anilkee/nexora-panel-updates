@@ -97,7 +97,7 @@ const WebSocket = require('ws'); // discord.js-selfbot-v13'ün zaten bağımlıl
 // artık herkes VDS'e bağlı, uygulamalar günlerce kapatılmadan açık kalabiliyor) belirli
 // aralıklarla da tekrar kontrol ediyor, sadece açılışta değil - bkz. app.on('ready') içindeki
 // setInterval.
-const CURRENT_VERSION = '1.27.0';
+const CURRENT_VERSION = '1.28.0';
 const UPDATE_REPO_OWNER = 'anilkee';
 const UPDATE_REPO_NAME = 'nexora-panel-updates';
 // GÜVENLİK - BURAYA TOKEN GÖMME: bu dosya paketlenen uygulamanın içinde düz metin olarak
@@ -254,6 +254,41 @@ async function findTargetUserId(channel, excludeMessageId) {
 
 let mainWindow;
 const client = new Client({ checkUpdate: false });
+
+// --- EKSİK "READY" PAKETİNE KARŞI KORUMA ---
+// Discord bir hesaptan bir işlem tamamlamasını istediğinde (e-posta/telefon doğrulama,
+// güncellenen şartları kabul etme, güvenlik kontrolü - gateway'de "USER_REQUIRED_ACTION")
+// READY paketini EKSİK gönderiyor: "user_settings" ve yanındaki bazı alanlar null geliyor.
+//
+// discord.js-selfbot-v13 bunu beklemiyor. READY işleyicisinin 112. satırındaki
+// "client.settings._patch(data.user_settings)" null ile çağrılıp çöküyor - VE ÖNEMLİSİ,
+// o satırdan SONRASI hiç çalışmıyor: sunucuların yüklendiği döngü de, "ready" olayının
+// atesLendiği yer de. Sonuç: panel sonsuza kadar "bağlanıyor" durumunda kalıyor, ticket
+// listesi hiç gelmiyor. Kullanıcı bunu "arkadaş bağlanamıyor" diye bildirdi (2026-09-03).
+//
+// Kütüphane node_modules içinde olduğu için güncellemeyle düzeltilemiyor; bu yüzden ilgili
+// metotlar burada, girişten ÖNCE, null'a dayanıklı hale getiriliyor. Böylece READY işleyicisi
+// yarıda kalmıyor, sunucular yükleniyor ve panel normal çalışmaya devam ediyor.
+//
+// NOT: bu sadece paneli ayakta tutar. Discord'un istediği işlem YİNE DE tamamlanmalı,
+// yoksa o hesap Discord tarafında kısıtlı kalmaya devam eder - kullanıcı uyarılıyor.
+let eksikReadyUyarildi = false;
+function korunanReadyAlani(sahip, metot) {
+    if (!sahip || typeof sahip[metot] !== 'function') return;
+    const orijinal = sahip[metot].bind(sahip);
+    sahip[metot] = (veri, ...kalan) => {
+        if (veri === null || veri === undefined) {
+            if (!eksikReadyUyarildi) {
+                eksikReadyUyarildi = true;
+                console.log('[Bağlantı] UYARI: Discord eksik bir oturum paketi gönderdi (hesabın tamamlaması gereken bir işlem var - doğrulama/şartlar). Panel çalışmaya devam ediyor ama Discord uygulamasından o işlemi tamamla.');
+            }
+            return undefined;
+        }
+        return orijinal(veri, ...kalan);
+    };
+}
+korunanReadyAlani(client.settings, '_patch');
+korunanReadyAlani(client.relationships, '_setup');
 
 // --- SİSTEM DURUMU (panelde "Durum" kartı için) ---
 let discordStatus = 'bağlanıyor'; // 'bağlanıyor' | 'bağlı' | 'hata'
