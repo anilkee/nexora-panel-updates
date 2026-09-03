@@ -1,4 +1,4 @@
 {
-  "version": "1.24.0",
-  "changelog": "- Sohbet ve denetim kaydı anahtarları artık config.env'den okunuyor (koda gömülü değil)\n- ÖNEMLİ: config.env'ine CHAT_SERVER_SECRET ve BOT_LOG_SECRET satırlarını eklemen gerekiyor, yoksa sohbet ve denetim kaydı çalışmaz (panel açılışta hatırlatıyor)\n- Güncelleme deposu artık public, güncelleme çekmek için token gerekmiyor\n- Eksik anahtar durumunda ticket/kontrol/ban akışları normal çalışmaya devam ediyor"
+  "version": "1.25.0",
+  "changelog": "- Sohbet ve denetim kaydı anahtarları artık açılışta sunucudan otomatik alınıyor\n- Kullanıcıdan hiçbir işlem istenmiyor: 1.24.0'daki config.env düzenleme adımı tamamen kalktı\n- Anahtarlar koda gömülü değil, sunucu tarafından döndürülebiliyor\n- Sunucuya ulaşılamazsa panel normal açılır, sadece sohbet/denetim kaydı o oturumda susar"
 }
