@@ -827,7 +827,7 @@ ipcRenderer.send('request-app-version');
 // inline style CSS kurallarının önüne geçip layout değiştirince "takılı kalmış" görünürlük
 // bug'ına yol açardı. Aynı fonksiyon; klasikteki dişli/geri, yan paneldeki ikonlar ve
 // liste+detay'daki sekmelerin HEPSİ tarafından kullanılıyor (hepsi ".nav-target").
-const SECTION_NAMES = ['tickets', 'lookup', 'status', 'chat', 'settings'];
+const SECTION_NAMES = ['tickets', 'lookup', 'history', 'status', 'chat', 'settings'];
 
 function setActiveSection(name) {
     if (!SECTION_NAMES.includes(name)) name = 'tickets';
@@ -836,6 +836,7 @@ function setActiveSection(name) {
         el.classList.toggle('active', el.dataset.section === name);
     });
     if (name === 'settings') ipcRenderer.send('request-debug-log');
+    if (name === 'history') ipcRenderer.send('request-lookup-history');
     // Sohbet sekmesine her girişte en alta kaydır - kullanıcı sekmeyi açtığında en son
     // mesajları görsün, geçmişin başında kalmasın. Ayrıca okunmamış rozetini sıfırla.
     if (name === 'chat') {
@@ -1362,3 +1363,206 @@ function renderDetailInfoFields(channelId, info) {
 }
 
 ipcRenderer.on('ticket-detail', (event, { channelId, detail }) => renderDetailInfoFields(channelId, detail));
+
+
+// ============================ GEÇMİŞ ARAMALAR ============================
+// Kimlik Sorgula'da aranan herkes main.js tarafından diske yazılıyor. Burada listelenip
+// seçilerek TOPLU işlem yapılabiliyor (AC Çağır / fg ban / fg offline-ban).
+// Gönderim ve onay penceresi main.js'te - burası sadece seçim ve gösterim.
+
+const histSearch = document.getElementById('histSearch');
+const histList = document.getElementById('histList');
+const histEmpty = document.getElementById('histEmpty');
+const histCount = document.getElementById('histCount');
+const histActions = document.getElementById('histActions');
+const histStatus = document.getElementById('histStatus');
+const histReasonRow = document.getElementById('histReasonRow');
+const histReasonInput = document.getElementById('histReasonInput');
+
+let histKayitlar = [];          // sunucudan gelen tam liste
+let histSecili = new Set();     // secili anahtarlar
+let histBekleyenBan = null;     // 'ban' | 'offline-ban' - sebep kutusu acikken
+let histGonderiyor = false;
+
+// main.js'teki lookupKey ile AYNI mantık - iki taraf aynı kaydı aynı anahtarla görmeli.
+function histAnahtar(k) {
+    return k.license || (k.discord ? 'd:' + k.discord : null) || (k.playerId ? 'p:' + k.playerId : null) || '';
+}
+
+function histGorunenler() {
+    const q = (histSearch.value || '').trim().toLowerCase();
+    if (!q) return histKayitlar;
+    return histKayitlar.filter((k) => [k.name, k.playerId, k.discord, k.license, k.steam]
+        .some((v) => v && String(v).toLowerCase().includes(q)));
+}
+
+function histZaman(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function histCiz() {
+    const gorunen = histGorunenler();
+    histList.innerHTML = '';
+
+    if (histKayitlar.length === 0) {
+        histEmpty.style.display = 'block';
+        histCount.style.display = 'none';
+        histActions.style.display = 'none';
+        return;
+    }
+    histEmpty.style.display = 'none';
+
+    for (const k of gorunen) {
+        const anahtar = histAnahtar(k);
+        const row = document.createElement('div');
+        row.className = 'hist-row';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = histSecili.has(anahtar);
+        cb.onchange = () => {
+            if (cb.checked) histSecili.add(anahtar); else histSecili.delete(anahtar);
+            histDurumTazele();
+        };
+        row.appendChild(cb);
+
+        const main = document.createElement('div');
+        main.className = 'hist-main';
+        const ad = document.createElement('div');
+        ad.className = 'hist-name';
+        ad.textContent = k.name || k.playerId || k.discord || k.license || '(isimsiz)';
+        const meta = document.createElement('div');
+        meta.className = 'hist-meta';
+        const parcalar = [];
+        if (k.playerId) parcalar.push('ID ' + k.playerId);
+        if (k.discord) parcalar.push('DC ' + k.discord);
+        if (k.sorgulanma) parcalar.push(histZaman(k.sorgulanma));
+        meta.textContent = parcalar.join('  ·  ');
+        main.appendChild(ad);
+        main.appendChild(meta);
+        row.appendChild(main);
+
+        const tags = document.createElement('div');
+        tags.className = 'hist-tags';
+        const durum = document.createElement('span');
+        durum.className = 'hist-tag ' + (k.online ? 'online' : 'offline');
+        durum.textContent = k.online ? 'OYUNDA' : 'ÇEVRİMDIŞI';
+        tags.appendChild(durum);
+        if (k.banned) {
+            const b = document.createElement('span');
+            b.className = 'hist-tag banned';
+            b.textContent = 'BANLI';
+            tags.appendChild(b);
+        }
+        row.appendChild(tags);
+
+        // Satira tiklayinca da secilsin - kucuk kutuyu tutturmaya calismak zorunda kalma
+        row.onclick = (e) => { if (e.target !== cb) { cb.checked = !cb.checked; cb.onchange(); } };
+        histList.appendChild(row);
+    }
+
+    histDurumTazele();
+}
+
+function histDurumTazele() {
+    const n = histSecili.size;
+    histCount.style.display = 'block';
+    histCount.textContent = `${histKayitlar.length} kayıt · ${n} seçili` +
+        (histSearch.value.trim() ? ` · ${histGorunenler().length} filtrede` : '');
+    histActions.style.display = n > 0 ? 'flex' : 'none';
+    if (n === 0) {
+        histReasonRow.style.display = 'none';
+        histBekleyenBan = null;
+    }
+}
+
+function histSeciliKayitlar() {
+    return histKayitlar.filter((k) => histSecili.has(histAnahtar(k)));
+}
+
+function histGonder(tip, sebep) {
+    if (histGonderiyor) return;
+    const kayitlar = histSeciliKayitlar();
+    if (kayitlar.length === 0) return;
+    histGonderiyor = true;
+    histStatus.style.display = 'block';
+    histStatus.textContent = 'Onay bekleniyor...';
+    // Onay penceresi ve gonderim main.js'te - "atmadan once uyar" orada.
+    ipcRenderer.send('bulk-action', { tip, kayitlar, sebep, count: 1 });
+}
+
+document.getElementById('histRefresh').onclick = () => ipcRenderer.send('request-lookup-history');
+histSearch.oninput = () => histCiz();
+
+document.getElementById('histSelectAll').onclick = () => {
+    const gorunen = histGorunenler();
+    const hepsiSecili = gorunen.length > 0 && gorunen.every((k) => histSecili.has(histAnahtar(k)));
+    // Filtre aciksa SADECE gorunenleri sec/birak - kullanicinin gormedigi kaydi secmek surpriz olur
+    for (const k of gorunen) {
+        if (hepsiSecili) histSecili.delete(histAnahtar(k)); else histSecili.add(histAnahtar(k));
+    }
+    histCiz();
+};
+
+document.getElementById('histClear').onclick = () => {
+    if (!confirm('Tüm arama geçmişi silinsin mi? Bu işlem geri alınamaz.')) return;
+    histSecili.clear();
+    ipcRenderer.send('clear-lookup-history');
+};
+
+document.getElementById('histAcCallBtn').onclick = () => histGonder('ac-call', null);
+
+document.getElementById('histBanBtn').onclick = () => {
+    histBekleyenBan = 'ban';
+    histReasonRow.style.display = 'flex';
+    histReasonInput.value = '';
+    histReasonInput.focus();
+};
+document.getElementById('histOfflineBanBtn').onclick = () => {
+    histBekleyenBan = 'offline-ban';
+    histReasonRow.style.display = 'flex';
+    histReasonInput.value = '';
+    histReasonInput.focus();
+};
+document.getElementById('histReasonCancel').onclick = () => {
+    histReasonRow.style.display = 'none';
+    histBekleyenBan = null;
+};
+document.getElementById('histReasonSend').onclick = () => {
+    const sebep = (histReasonInput.value || '').trim();
+    if (!sebep || !histBekleyenBan) return;
+    const tip = histBekleyenBan;
+    histReasonRow.style.display = 'none';
+    histBekleyenBan = null;
+    histGonder(tip, sebep);
+};
+histReasonInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('histReasonSend').click();
+});
+
+ipcRenderer.on('lookup-history', (event, kayitlar) => {
+    histKayitlar = Array.isArray(kayitlar) ? kayitlar : [];
+    // Artik var olmayan kayitlarin secimini dusur
+    const mevcut = new Set(histKayitlar.map(histAnahtar));
+    for (const a of [...histSecili]) if (!mevcut.has(a)) histSecili.delete(a);
+    histCiz();
+});
+
+ipcRenderer.on('bulk-action-progress', (event, { sira, toplam, ad }) => {
+    histStatus.style.display = 'block';
+    histStatus.textContent = `Gönderiliyor: ${sira}/${toplam} — ${ad}`;
+});
+
+ipcRenderer.on('bulk-action-result', (event, result) => {
+    histGonderiyor = false;
+    histStatus.style.display = 'block';
+    histStatus.textContent = result.message || 'Tamamlandı.';
+    if (result.success) {
+        histSecili.clear();
+        histCiz();
+        ipcRenderer.send('request-lookup-history');
+    }
+});
